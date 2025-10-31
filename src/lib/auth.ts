@@ -1,4 +1,5 @@
 import { PrismaAdapter } from "@auth/prisma-adapter";
+import type { Adapter } from "@auth/core/adapters";
 import { prisma } from "@/lib/db";
 import NextAuth, { type NextAuthConfig } from "next-auth";
 import EmailProvider from "next-auth/providers/email";
@@ -24,7 +25,8 @@ export const authConfig: NextAuthConfig = {
   trustHost: true,
   debug: false, // Turn off for production
   session: { strategy: "jwt" },
-  adapter: PrismaAdapter(prisma),
+  // Cast to the standard Adapter type so TS doesn't force app-specific fields
+  adapter: PrismaAdapter(prisma) as Adapter,
   logger: { error: console.error, warn: console.warn },
   pages: {
     signIn: '/client/login', // Default to client login
