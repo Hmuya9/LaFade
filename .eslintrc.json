@@ -1,0 +1,28 @@
+{
+  "root": true,
+  "extends": ["next/core-web-vitals"],
+  "rules": {
+    "no-console": ["warn", { "allow": ["warn", "error"] }],
+    "@next/next/no-img-element": "off",
+    "react/no-unescaped-entities": "off"
+  },
+  "overrides": [
+    {
+      "files": ["src/app/api/**/*.{ts,tsx}", "src/app/**/route.ts"],
+      "rules": {
+        "no-console": "off"
+      }
+    },
+    {
+      "files": ["**/*.test.ts", "**/*.test.tsx", "**/*.spec.ts", "**/*.spec.tsx"],
+      "globals": {
+        "vi": "readonly",
+        "describe": "readonly",
+        "it": "readonly",
+        "expect": "readonly",
+        "beforeEach": "readonly",
+        "afterEach": "readonly"
+      }
+    }
+  ]
+}

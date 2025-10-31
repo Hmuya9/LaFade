@@ -1,0 +1,228 @@
+// Local development Prisma schema (SQLite)
+// Mirrors the main schema but uses SQLite provider for local dev
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String    @id @default(cuid())
+  role          Role      @default(CLIENT)
+  email         String?   @unique
+  emailVerified DateTime?
+  phone         String?
+  name          String?
+  image         String?
+  clerkId       String?   @unique
+  createdAt     DateTime  @default(now())
+  
+  accounts      Account[]
+  sessions      Session[]
+  subscriptions Subscription[]
+  clientAppts   Appointment[] @relation("ClientAppts")
+  barberAppts   Appointment[] @relation("BarberAppts")
+  payouts       Payout[]
+  pointsLedger  PointsLedger[]
+}
+
+enum Role { 
+  CLIENT 
+  BARBER 
+  OWNER 
+}
+
+model Plan {
+  id           String  @id @default(cuid())
+  name         String
+  priceMonthly Int     // Price in cents
+  cutsPerMonth Int
+  isHome       Boolean @default(false)
+  stripePriceId String @unique
+  
+  subscriptions Subscription[]
+}
+
+model Subscription {
+  id          String   @id @default(cuid())
+  userId      String
+  planId      String
+  status      SubStatus @default(ACTIVE)
+  startDate   DateTime @default(now())
+  renewsAt    DateTime
+  stripeSubId String   @unique
+  
+  user        User     @relation(fields: [userId], references: [id])
+  plan        Plan     @relation(fields: [planId], references: [id])
+}
+
+enum SubStatus { 
+  TRIAL 
+  ACTIVE 
+  PAST_DUE 
+  CANCELED 
+}
+
+model Appointment {
+  id             String   @id @default(cuid())
+  clientId       String
+  barberId       String
+  type           ApptType
+  startAt        DateTime
+  endAt          DateTime
+  status         ApptStatus @default(BOOKED)
+  address        String?
+  notes          String?
+  isFree         Boolean  @default(false)
+  idempotencyKey String?  @unique
+  
+  client         User     @relation("ClientAppts", fields: [clientId], references: [id])
+  barber         User     @relation("BarberAppts", fields: [barberId], references: [id])
+
+  @@index([barberId, startAt])
+  @@unique([barberId, startAt])
+  @@unique([clientId, startAt])
+}
+
+enum ApptType { 
+  SHOP 
+  HOME 
+}
+
+enum ApptStatus { 
+  BOOKED 
+  CONFIRMED 
+  COMPLETED 
+  NO_SHOW 
+  CANCELED 
+}
+
+model Payout {
+  id                String   @id @default(cuid())
+  barberId          String
+  periodStart       DateTime
+  periodEnd         DateTime
+  baseAmount        Int      // $60/week in cents
+  deluxeBonusAmount Int      // $15 per Deluxe cut
+  tips              Int      @default(0)
+  total             Int
+  status            PayoutStatus @default(PENDING)
+  
+  barber            User     @relation(fields: [barberId], references: [id])
+}
+
+enum PayoutStatus { 
+  PENDING 
+  PAID 
+  FAILED 
+}
+
+model Payment {
+  id              String   @id @default(cuid())
+  userId          String
+  stripePaymentId String   @unique
+  amount          Int      // Amount in cents
+  kind            PaymentKind
+  createdAt       DateTime @default(now())
+}
+
+enum PaymentKind { 
+  SUBSCRIPTION 
+  ONEOFF 
+  REFUND 
+}
+
+model PromoCode {
+  id             String   @id @default(cuid())
+  code           String   @unique
+  kind           PromoKind
+  value          Int      // Discount amount or percentage
+  maxRedemptions Int?
+  expiresAt      DateTime?
+  createdAt      DateTime @default(now())
+}
+
+enum PromoKind { 
+  PERCENT 
+  FIXED 
+}
+
+model EventLog {
+  id        String   @id @default(cuid())
+  type      String
+  payload   Json
+  createdAt DateTime @default(now())
+}
+
+model Review {
+  id        String   @id @default(cuid())
+  name      String
+  rating    Int      // 1-5 stars
+  comment   String
+  approved  Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+model Availability {
+  id          Int      @id @default(autoincrement())
+  barberName  String
+  date        DateTime
+  timeSlot    String
+  isBooked    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  @@unique([barberName, date, timeSlot])
+}
+
+model PointsLedger {
+  id        String   @id @default(cuid())
+  userId    String
+  delta     Int
+  reason    String
+  refType   String?
+  refId     String?
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
