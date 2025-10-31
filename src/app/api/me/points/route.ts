@@ -10,7 +10,7 @@ export async function GET() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const balance = await getPointsBalance(session.user.id)
+    const balance = await getPointsBalance(session.user.id as string)
 
     return NextResponse.json({ balance })
   } catch (error) {

@@ -11,7 +11,7 @@ async function diagnosticCheck() {
     console.log('\n📋 Environment Variables:');
     const envResponse = await fetch(`${APP_URL}/api/dev/env`);
     if (envResponse.ok) {
-      const envData = await envResponse.json();
+      const envData: any = await envResponse.json();
       console.log('   Environment check:', envData.env);
       
       // Check for missing critical envs
@@ -30,7 +30,7 @@ async function diagnosticCheck() {
     console.log('\n🔐 Authentication State:');
     const sessionResponse = await fetch(`${APP_URL}/api/dev/session`);
     if (sessionResponse.ok) {
-      const sessionData = await sessionResponse.json();
+      const sessionData: any = await sessionResponse.json();
       console.log('   Session check:', sessionData.ok ? 'OK' : 'FAILED');
       if (sessionData.session) {
         console.log(`   User: ${sessionData.session.user?.email || 'None'}`);
@@ -47,7 +47,7 @@ async function diagnosticCheck() {
     console.log('\n🔌 Auth Plumbing:');
     const authResponse = await fetch(`${APP_URL}/api/dev/ping-auth`);
     if (authResponse.ok) {
-      const authData = await authResponse.json();
+      const authData: any = await authResponse.json();
       console.log('   Auth check:', authData.ok ? 'OK' : 'FAILED');
       console.log('   Database connected:', authData.auth.dbConnected);
       console.log('   Tables:', authData.auth.tables);
@@ -59,7 +59,7 @@ async function diagnosticCheck() {
     console.log('\n💚 Health Check:');
     const healthResponse = await fetch(`${APP_URL}/api/health`);
     if (healthResponse.ok) {
-      const healthData = await healthResponse.json();
+      const healthData: any = await healthResponse.json();
       console.log('   Health:', healthData);
     } else {
       console.log('   ❌ Health check failed');

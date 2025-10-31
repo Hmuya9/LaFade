@@ -10,7 +10,7 @@ export async function POST() {
     return NextResponse.redirect(new URL("/signin", baseUrl));
   }
   
-  const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: "2024-06-20" });
+  const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: "2024-06-20" } as any);
   
   // Look up or create customer by email
   const customers = await stripe.customers.list({ email: session.user.email, limit: 1 });

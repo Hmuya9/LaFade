@@ -6,7 +6,7 @@ async function smokeTest() {
   console.log(`🧪 Running smoke tests against: ${APP_URL}`);
   console.log('=' .repeat(50));
 
-  const tests = [
+  const tests: any[] = [
     {
       name: 'Health Check',
       url: `${APP_URL}/api/health`,
@@ -74,7 +74,7 @@ async function smokeTest() {
           }
         } else {
           // JSON content check
-          const data = await response.json();
+          const data: any = await response.json();
           if (typeof test.expected === 'object') {
             const keys = Object.keys(test.expected);
             const matches = keys.every(key => data[key] === test.expected[key]);

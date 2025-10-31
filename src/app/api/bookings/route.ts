@@ -223,7 +223,7 @@ export async function POST(req: NextRequest) {
     // Debit points for booking (except for free trials)
     if (data.plan !== "trial") {
       try {
-        await debit(session.user.id, 5, 'BOOKING_DEBIT', 'BOOKING', appointment.id);
+        await debit(session.user.id as string, 5, 'BOOKING_DEBIT', 'BOOKING', appointment.id);
         console.log(`✅ Debited 5 points from user ${session.user.id} for booking ${appointment.id}`);
       } catch (pointsError: any) {
         // If insufficient points, rollback the appointment
