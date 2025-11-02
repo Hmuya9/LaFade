@@ -3,7 +3,7 @@ import { Inter } from "next/font/google";
 import "./globals.css";
 import { Navbar } from "@/components/Navbar";
 import { BRAND } from "@/lib/brand";
-import { SessionProvider } from "next-auth/react";
+import { Providers } from "@/components/providers";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -31,12 +31,12 @@ export default function RootLayout({
       <body
         className={`${inter.variable} min-h-screen bg-zinc-50 text-zinc-900 antialiased`}
       >
-        <SessionProvider>
+        <Providers>
           <Navbar />
           <main className="flex-1">
             {children}
           </main>
-        </SessionProvider>
+        </Providers>
       </body>
     </html>
   );
