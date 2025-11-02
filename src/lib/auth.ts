@@ -1,7 +1,6 @@
-import { PrismaAdapter } from "@auth/prisma-adapter";
-import type { Adapter } from "@auth/core/adapters";
+import { PrismaAdapter } from "@next-auth/prisma-adapter";
 import { prisma } from "@/lib/db";
-import NextAuth, { type NextAuthConfig } from "next-auth";
+import NextAuth, { NextAuthOptions } from "next-auth";
 import EmailProvider from "next-auth/providers/email";
 import { Resend } from "resend";
 
@@ -21,13 +20,10 @@ if (!BARBER_EMAIL) {
   console.warn("⚠️ BARBER_EMAIL is missing - no users will be assigned BARBER role");
 }
 
-export const authConfig: NextAuthConfig = {
-  trustHost: true,
+export const authOptions: NextAuthOptions = {
   debug: false, // Turn off for production
   session: { strategy: "jwt" },
-  // Cast to the standard Adapter type so TS doesn't force app-specific fields
-  adapter: PrismaAdapter(prisma) as Adapter,
-  logger: { error: console.error, warn: console.warn },
+  adapter: PrismaAdapter(prisma),
   pages: {
     signIn: '/client/login', // Default to client login
     error: '/client/login', // Redirect errors to client login
@@ -81,9 +77,10 @@ export const authConfig: NextAuthConfig = {
       return `${baseUrl}/post-login`;
     },
     async session({ session, token }) {
-      // expose role on the session object for server/client checks
+      // expose role and id on the session object for server/client checks
       if (session.user) {
         session.user.role = (token.role as "BARBER" | "CLIENT") || "CLIENT"
+        session.user.id = token.sub || token.id as string
       }
       return session;
     },
@@ -94,6 +91,11 @@ export const authConfig: NextAuthConfig = {
 
       // set role on the token deterministically on every sign-in / refresh
       token.role = email && email === barberEmail ? "BARBER" : "CLIENT"
+      
+      // store user id on first sign in
+      if (user?.id) {
+        token.id = user.id;
+      }
       
       console.info(`[auth][jwt] ${email} -> ${token.role}`, { 
         email, 
@@ -130,4 +132,11 @@ export const authConfig: NextAuthConfig = {
   },
 };
 
-export const { handlers, auth, signIn, signOut } = NextAuth(authConfig);
+// Helper function for getting session in server components and API routes
+export async function auth() {
+  const { getServerSession } = await import("next-auth/next");
+  return getServerSession(authOptions);
+}
+
+// Re-export signIn/signOut from next-auth
+export { signIn, signOut } from "next-auth/react";

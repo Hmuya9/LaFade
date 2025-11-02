@@ -141,3 +141,4 @@ The Resend API has testing mode restrictions:
 ✅ Only barber email works on `/barber/login`
 ✅ All other emails work on `/client/login`
 
+

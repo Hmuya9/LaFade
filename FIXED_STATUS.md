@@ -120,3 +120,4 @@ The application is now working correctly. The 404 errors were caused by a corrup
 
 **Next steps**: Test the authentication flow and verify you receive the magic link email!
 
+
