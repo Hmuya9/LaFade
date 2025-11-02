@@ -3,6 +3,8 @@ import { prisma } from "@/lib/db";
 import { requireAdmin } from "@/lib/admin";
 import { Resend } from "resend";
 
+export const runtime = "nodejs";
+
 export async function POST(req: Request) {
   await requireAdmin();
   
@@ -32,3 +34,4 @@ export async function POST(req: Request) {
 
   return NextResponse.redirect(new URL("/admin/broadcast", baseUrl));
 }
+

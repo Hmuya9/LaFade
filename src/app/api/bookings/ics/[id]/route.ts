@@ -3,6 +3,8 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { buildICS } from "@/lib/calendar";
 
+export const runtime = "nodejs";
+
 // Validation schema for appointment ID parameter
 const appointmentIdSchema = z.object({
   id: z.string().cuid("Invalid appointment ID format")

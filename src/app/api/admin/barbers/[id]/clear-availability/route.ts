@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { requireAdmin } from "@/lib/admin";
 
+export const runtime = "nodejs";
+
 export async function POST(_: Request, { params }: { params: { id: string } }) {
   await requireAdmin();
   
@@ -28,3 +30,4 @@ export async function POST(_: Request, { params }: { params: { id: string } }) {
   
   return NextResponse.redirect(new URL("/admin/barbers", baseUrl));
 }
+

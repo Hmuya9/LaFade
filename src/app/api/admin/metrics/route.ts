@@ -4,6 +4,8 @@ import { stripe } from "@/lib/stripe"
 import { redisGet, redisSet } from "@/lib/redis"
 import dayjs from "dayjs"
 
+export const runtime = "nodejs";
+
 export async function GET() {
   try {
     // Check if database is accessible

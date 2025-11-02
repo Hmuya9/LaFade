@@ -4,6 +4,8 @@ import { prisma } from "@/lib/db"
 import { credit } from "@/lib/points"
 import Stripe from "stripe"
 
+export const runtime = "nodejs";
+
 export async function POST(request: NextRequest) {
   // Check if Stripe is properly configured
   if (!process.env.STRIPE_SECRET_KEY || !process.env.STRIPE_WEBHOOK_SECRET) {

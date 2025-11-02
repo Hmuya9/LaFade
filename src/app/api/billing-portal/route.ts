@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import Stripe from "stripe";
 
+export const runtime = "nodejs";
+
 export async function POST() {
   const session = await auth();
   const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";

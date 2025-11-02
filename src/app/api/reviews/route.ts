@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/db"
 import { z } from "zod"
 
+export const runtime = "nodejs";
+
 const createReviewSchema = z.object({
   name: z.string().min(1, "Name is required").max(100, "Name too long"),
   rating: z.number().int().min(1, "Rating must be at least 1").max(5, "Rating must be at most 5"),

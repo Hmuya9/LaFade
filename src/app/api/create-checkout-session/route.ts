@@ -3,6 +3,8 @@ import { stripe } from "@/lib/stripe"
 import { createErrorResponse } from "@/lib/error"
 import { rateLimit, getClientIP } from "@/lib/rate-limit"
 
+export const runtime = "nodejs";
+
 export async function POST(request: NextRequest) {
   // Rate limiting
   const clientIP = getClientIP(request)

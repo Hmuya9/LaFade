@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 
+export const runtime = "nodejs";
+
 export async function GET() {
   // Only available in development
   if (process.env.NODE_ENV === "production") {
@@ -44,3 +46,4 @@ export async function GET() {
     }, { status: 500 });
   }
 }
+

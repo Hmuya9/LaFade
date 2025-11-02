@@ -7,6 +7,8 @@ import crypto from "crypto";
 import { buildICS } from "@/lib/calendar";
 import { sendBookingEmail } from "@/lib/notify";
 
+export const runtime = "nodejs";
+
 const createBookingSchema = z.object({
   customerName: z.string().min(2),
   customerEmail: z.string().email(),
