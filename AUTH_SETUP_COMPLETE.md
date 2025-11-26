@@ -142,3 +142,8 @@ The Resend API has testing mode restrictions:
 ✅ All other emails work on `/client/login`
 
 
+
+
+
+
+

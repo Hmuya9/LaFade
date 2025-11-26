@@ -239,3 +239,8 @@ LaFade is a Next.js 14 application with NextAuth email-based authentication, Pri
 - **Production Guards**: Debug endpoints disabled in production
 - **Webhook Verification**: Stripe signature validation
 
+
+
+
+
+

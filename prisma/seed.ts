@@ -1,6 +1,5 @@
-import { PrismaClient } from "@prisma/client"
-
-const prisma = new PrismaClient()
+import { prisma } from "../src/lib/db"
+import bcrypt from "bcryptjs"
 
 async function main() {
   // Get barber email from environment or use default
@@ -19,6 +18,26 @@ async function main() {
   })
 
   console.log(`✅ Created barber: ${barberName} (${barber.id})`)
+
+  // Ensure Leney barber exists (upsert to always set correct role and name)
+  const leneyEmail = "corneillebagalwa01@gmail.com"
+  const leneyName = "Leney"
+
+  const leney = await prisma.user.upsert({
+    where: { email: leneyEmail },
+    update: { 
+      role: "BARBER", 
+      name: leneyName 
+    },
+    create: {
+      name: leneyName,
+      email: leneyEmail,
+      role: "BARBER",
+      // passwordHash can be null if using magic link/OAuth
+    }
+  })
+
+  console.log(`✅ Ensured barber: ${leneyName} (${leney.email})`)
 
   // Clear existing availability data for this barber
   await prisma.availability.deleteMany({
