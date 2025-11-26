@@ -28,8 +28,27 @@ const envSchema = z.object({
 })
 
 export function validateEnv() {
+  const parsed = envSchema.safeParse(process.env)
+  
+  if (!parsed.success) {
+    if (process.env.NODE_ENV === "production") {
+      console.error("❌ Environment validation failed:")
+      parsed.error.issues.forEach(err => {
+        console.error(`  - ${err.path.join('.')}: ${err.message}`)
+      })
+      throw new Error("Invalid environment configuration")
+    }
+    
+    // In development, log warnings and return partial env
+    console.warn("⚠️ Environment validation warnings:")
+    parsed.error.issues.forEach(err => {
+      console.warn(`  - ${err.path.join('.')}: ${err.message}`)
+    })
+    return process.env as any
+  }
+  
   try {
-    const env = envSchema.parse(process.env)
+    const env = parsed.data
     
     // Warn about missing critical env vars in development
     if (process.env.NODE_ENV === "development") {
@@ -79,12 +98,7 @@ export function validateEnv() {
     
     return env
   } catch (error) {
-    if (error instanceof z.ZodError) {
-      console.error("❌ Environment validation failed:")
-      error.issues.forEach(err => {
-        console.error(`  - ${err.path.join('.')}: ${err.message}`)
-      })
-    }
+    console.error("❌ Environment validation error:", error)
     
     // In production, we should fail fast
     if (process.env.NODE_ENV === "production") {

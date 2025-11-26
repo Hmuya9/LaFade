@@ -1,27 +1,24 @@
 import { NextResponse } from "next/server";
+import { env } from "@/lib/env";
 import { prisma } from "@/lib/db";
 
-export const runtime = "nodejs";
-
 export async function GET() {
-  let dbStatus: 'up' | 'down' = 'down';
-  
   try {
     await prisma.$queryRaw`SELECT 1`;
-    dbStatus = 'up';
-  } catch (dbError) {
-    console.error('Health check: database connection failed', dbError);
+
+    return NextResponse.json({
+      status: "ok",
+      env: {
+        database: !!env.DATABASE_URL,
+        nextauth: !!env.NEXTAUTH_SECRET,
+        resend: !!env.RESEND_API_KEY,
+        emailFrom: !!env.EMAIL_FROM,
+      },
+    });
+  } catch (error) {
+    return NextResponse.json(
+      { status: "error", error: String(error) },
+      { status: 500 }
+    );
   }
-
-  const emailStatus = (process.env.RESEND_API_KEY && process.env.NOTIFY_FROM) 
-    ? 'configured' 
-    : 'skipped';
-
-  return NextResponse.json({
-    ok: true,
-    db: dbStatus,
-    email: emailStatus,
-  }, { status: 200 });
 }
-
-

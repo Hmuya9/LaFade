@@ -5,9 +5,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { SkeletonList } from "@/components/ui/SkeletonList"
 import { ErrorState } from "@/components/ui/ErrorState"
 import Link from "next/link"
+import { getBaseUrl } from "@/lib/env"
 
 async function getAdminMetrics(): Promise<AdminMetrics> {
-  const response = await fetch(`${process.env.NEXTAUTH_URL || "http://localhost:3000"}/api/admin/metrics`, {
+  const response = await fetch(`${getBaseUrl()}/api/admin/metrics`, {
     cache: 'no-store'
   });
   if (!response.ok) {

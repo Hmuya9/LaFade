@@ -11,10 +11,16 @@ export function SignInButton() {
   }
 
   if (session) {
+    // Prefer name over email, fallback to email if name is missing
+    const displayName =
+      session.user?.name && session.user.name.trim().length > 0
+        ? session.user.name
+        : session.user?.email;
+
     return (
       <div className="flex items-center gap-2">
         <span className="text-sm text-zinc-600">
-          {session.user?.email}
+          {displayName}
         </span>
         <Button 
           variant="outline" 

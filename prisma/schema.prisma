@@ -6,7 +6,7 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "sqlite"
   url      = env("DATABASE_URL")
 }
 
@@ -19,56 +19,61 @@ model User {
   name          String?
   image         String?
   clerkId       String?   @unique
+  passwordHash  String?
+  city          String?   // Barber's city / town (optional)
   createdAt     DateTime  @default(now())
-  
-  accounts      Account[]
-  sessions      Session[]
-  subscriptions Subscription[]
-  clientAppts   Appointment[] @relation("ClientAppts")
-  barberAppts   Appointment[] @relation("BarberAppts")
-  payouts       Payout[]
-  pointsLedger  PointsLedger[]
+
+  accounts            Account[]
+  sessions            Session[]
+  subscriptions       Subscription[]
+  clientAppts         Appointment[]        @relation("ClientAppts")
+  barberAppts         Appointment[]        @relation("BarberAppts")
+  payouts             Payout[]
+  pointsLedger        PointsLedger[]
+  passwordResetTokens PasswordResetToken[]
+  photos              Photo[]
+  weeklyAvailability  BarberAvailability[] @relation("BarberAvailability")
 }
 
-enum Role { 
-  CLIENT 
-  BARBER 
-  OWNER 
+enum Role {
+  CLIENT
+  BARBER
+  OWNER
 }
 
 model Plan {
-  id           String  @id @default(cuid())
-  name         String
-  priceMonthly Int     // Price in cents
-  cutsPerMonth Int
-  isHome       Boolean @default(false)
-  stripePriceId String @unique
-  
+  id            String  @id @default(cuid())
+  name          String
+  priceMonthly  Int // Price in cents
+  cutsPerMonth  Int
+  isHome        Boolean @default(false)
+  stripePriceId String  @unique
+
   subscriptions Subscription[]
 }
 
 model Subscription {
-  id          String   @id @default(cuid())
+  id          String    @id @default(cuid())
   userId      String
   planId      String
   status      SubStatus @default(ACTIVE)
-  startDate   DateTime @default(now())
+  startDate   DateTime  @default(now())
   renewsAt    DateTime
-  stripeSubId String   @unique
-  
-  user        User     @relation(fields: [userId], references: [id])
-  plan        Plan     @relation(fields: [planId], references: [id])
+  stripeSubId String    @unique
+
+  user User @relation(fields: [userId], references: [id])
+  plan Plan @relation(fields: [planId], references: [id])
 }
 
-enum SubStatus { 
-  TRIAL 
-  ACTIVE 
-  PAST_DUE 
-  CANCELED 
+enum SubStatus {
+  TRIAL
+  ACTIVE
+  PAST_DUE
+  CANCELED
 }
 
 model Appointment {
-  id             String   @id @default(cuid())
+  id             String     @id @default(cuid())
   clientId       String
   barberId       String
   type           ApptType
@@ -77,78 +82,79 @@ model Appointment {
   status         ApptStatus @default(BOOKED)
   address        String?
   notes          String?
-  isFree         Boolean  @default(false)
-  idempotencyKey String?  @unique
-  
-  client         User     @relation("ClientAppts", fields: [clientId], references: [id])
-  barber         User     @relation("BarberAppts", fields: [barberId], references: [id])
+  isFree         Boolean    @default(false)
+  idempotencyKey String?    @unique
+  cancelReason   String?
 
-  @@index([barberId, startAt])
+  client User @relation("ClientAppts", fields: [clientId], references: [id])
+  barber User @relation("BarberAppts", fields: [barberId], references: [id])
+
   @@unique([barberId, startAt])
   @@unique([clientId, startAt])
+  @@index([barberId, startAt])
 }
 
-enum ApptType { 
-  SHOP 
-  HOME 
+enum ApptType {
+  SHOP
+  HOME
 }
 
-enum ApptStatus { 
-  BOOKED 
-  CONFIRMED 
-  COMPLETED 
-  NO_SHOW 
-  CANCELED 
+enum ApptStatus {
+  BOOKED
+  CONFIRMED
+  COMPLETED
+  NO_SHOW
+  CANCELED
 }
 
 model Payout {
-  id                String   @id @default(cuid())
+  id                String       @id @default(cuid())
   barberId          String
   periodStart       DateTime
   periodEnd         DateTime
-  baseAmount        Int      // $60/week in cents
-  deluxeBonusAmount Int      // $15 per Deluxe cut
-  tips              Int      @default(0)
+  baseAmount        Int // $60/week in cents
+  deluxeBonusAmount Int // $15 per Deluxe cut
+  tips              Int          @default(0)
   total             Int
   status            PayoutStatus @default(PENDING)
-  
-  barber            User     @relation(fields: [barberId], references: [id])
+
+  barber User @relation(fields: [barberId], references: [id])
 }
 
-enum PayoutStatus { 
-  PENDING 
-  PAID 
-  FAILED 
+enum PayoutStatus {
+  PENDING
+  PAID
+  FAILED
 }
 
 model Payment {
-  id              String   @id @default(cuid())
+  id              String      @id @default(cuid())
   userId          String
-  stripePaymentId String   @unique
-  amount          Int      // Amount in cents
+  stripePaymentId String      @unique
+  amount          Int // Amount in cents
   kind            PaymentKind
-  createdAt       DateTime @default(now())
+  createdAt       DateTime    @default(now())
 }
 
-enum PaymentKind { 
-  SUBSCRIPTION 
-  ONEOFF 
-  REFUND 
+enum PaymentKind {
+  SUBSCRIPTION
+  ONEOFF
+  REFUND
 }
 
 model PromoCode {
-  id             String   @id @default(cuid())
-  code           String   @unique
+  id             String    @id @default(cuid())
+  code           String    @unique
   kind           PromoKind
-  value          Int      // Discount amount or percentage
+  value          Int // Discount amount or percentage
   maxRedemptions Int?
   expiresAt      DateTime?
-  createdAt      DateTime @default(now())
+  createdAt      DateTime  @default(now())
 }
 
-enum PromoKind { 
-  PERCENT 
-  FIXED 
+enum PromoKind {
+  PERCENT
+  FIXED
 }
 
 model EventLog {
@@ -161,21 +167,39 @@ model EventLog {
 model Review {
   id        String   @id @default(cuid())
   name      String
-  rating    Int      // 1-5 stars
+  rating    Int // 1-5 stars
   comment   String
   approved  Boolean  @default(false)
   createdAt DateTime @default(now())
 }
 
+// Legacy availability model - date-specific slots (kept for backward compatibility)
 model Availability {
-  id          Int      @id @default(autoincrement())
-  barberName  String
-  date        DateTime
-  timeSlot    String
-  isBooked    Boolean  @default(false)
-  createdAt   DateTime @default(now())
+  id         Int      @id @default(autoincrement())
+  barberName String
+  date       DateTime
+  timeSlot   String
+  isBooked   Boolean  @default(false)
+  createdAt  DateTime @default(now())
 
   @@unique([barberName, date, timeSlot])
+}
+
+// Weekly availability ranges for barbers
+// Each barber can set multiple time ranges per day of week
+model BarberAvailability {
+  id        String   @id @default(cuid())
+  barberId  String
+  dayOfWeek Int // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+  startTime String // "10:00" (24-hour format)
+  endTime   String // "14:00" (24-hour format)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  barber User @relation("BarberAvailability", fields: [barberId], references: [id], onDelete: Cascade)
+
+  @@unique([barberId, dayOfWeek, startTime, endTime])
+  @@index([barberId, dayOfWeek])
 }
 
 model PointsLedger {
@@ -187,7 +211,7 @@ model PointsLedger {
   refId     String?
   createdAt DateTime @default(now())
 
-  user      User     @relation(fields: [userId], references: [id])
+  user User @relation(fields: [userId], references: [id])
 
   @@index([userId])
 }
@@ -198,12 +222,12 @@ model Account {
   type              String
   provider          String
   providerAccountId String
-  refresh_token     String? @db.Text
-  access_token      String? @db.Text
+  refresh_token     String?
+  access_token      String?
   expires_at        Int?
   token_type        String?
   scope             String?
-  id_token          String? @db.Text
+  id_token          String?
   session_state     String?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -227,3 +251,30 @@ model VerificationToken {
   @@unique([identifier, token])
 }
 
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Photo {
+  id         String   @id @default(cuid())
+  url        String
+  publicId   String? // Cloudinary public_id for deletion
+  isApproved Boolean  @default(false) // for future moderation
+  createdAt  DateTime @default(now())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// TODO: After adding Photo model, run:
+// pnpm prisma migrate dev --name add_photo_model
+// pnpm prisma generate

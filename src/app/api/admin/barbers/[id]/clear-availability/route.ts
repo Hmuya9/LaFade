@@ -1,13 +1,14 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { requireAdmin } from "@/lib/admin";
+import { getBaseUrl } from "@/lib/env";
 
 export const runtime = "nodejs";
 
 export async function POST(_: Request, { params }: { params: { id: string } }) {
   await requireAdmin();
   
-  const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
+  const baseUrl = getBaseUrl();
   
   // Clear future availability for this barber (using barberName since we store by name)
   const barber = await prisma.user.findUnique({

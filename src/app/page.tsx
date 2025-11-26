@@ -1,79 +1,26 @@
-"use client"
-
 import Link from "next/link";
-import { env } from "@/lib/env";
+import { redirect } from "next/navigation";
+import { auth } from "@/lib/auth";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { PLANS } from "@/config/plans";
-import { ReviewCard } from "@/components/ReviewCard";
-import { useEffect, useState } from "react";
 import { BRAND } from "@/lib/brand";
+import { TestimonialsSection } from "./_components/TestimonialsSection";
 
-function TestimonialsSection() {
-  const [reviews, setReviews] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+export default async function Home() {
+  // Check if user is logged in and redirect based on role
+  const session = await auth();
   
-  useEffect(() => {
-    const fetchReviews = async () => {
-      try {
-        const response = await fetch('/api/reviews', {
-          cache: 'no-store'
-        });
-        
-        if (!response.ok) {
-          throw new Error('Failed to fetch reviews');
-        }
-        
-        const data = await response.json();
-        setReviews(data.reviews || []);
-      } catch (error) {
-        console.error('Error fetching reviews:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-    
-    fetchReviews();
-  }, []);
-  
-  if (loading) {
-    return (
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {[1, 2, 3].map((i) => (
-          <div key={i} className="animate-pulse">
-            <div className="bg-zinc-100 rounded-lg h-48"></div>
-          </div>
-        ))}
-      </div>
-    );
+  if (session?.user) {
+    const role = (session.user as any)?.role;
+    if (role === "CLIENT") {
+      redirect("/account");
+    } else if (role === "BARBER") {
+      redirect("/barber");
+    } else if (role === "OWNER") {
+      redirect("/admin/appointments");
+    }
   }
-  
-  if (reviews.length === 0) {
-    return (
-      <div className="text-center py-12">
-        <p className="text-zinc-600 text-lg">
-          No testimonials yet. Be the first to share your experience!
-        </p>
-      </div>
-    );
-  }
-  
-  return (
-    <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
-      {reviews.slice(0, 3).map((review: any) => (
-        <ReviewCard
-          key={review.id}
-          name={review.name}
-          rating={review.rating}
-          comment={review.comment}
-          createdAt={review.createdAt}
-        />
-      ))}
-    </div>
-  );
-}
-
-export default function Home() {
   return (
     <main className="min-h-screen bg-zinc-50">
       {/* Hero Section */}
@@ -99,10 +46,10 @@ export default function Home() {
               Start Your Subscription
             </Link>
             <a 
-              href={env.calendly || "/booking"}
+              href={process.env.NEXT_PUBLIC_CALENDLY_URL || "/booking"}
               className="inline-flex items-center px-8 py-4 border-2 border-zinc-600 text-zinc-300 font-semibold rounded-xl hover:border-zinc-500 hover:text-white transition-all duration-200"
-              target={env.calendly ? "_blank" : undefined}
-              rel={env.calendly ? "noopener noreferrer" : undefined}
+              target={process.env.NEXT_PUBLIC_CALENDLY_URL ? "_blank" : undefined}
+              rel={process.env.NEXT_PUBLIC_CALENDLY_URL ? "noopener noreferrer" : undefined}
             >
               Book Free Test Cut
             </a>
@@ -281,10 +228,10 @@ export default function Home() {
               Start Your Subscription
             </Link>
             <a 
-              href={env.calendly || "/booking"}
+              href={process.env.NEXT_PUBLIC_CALENDLY_URL || "/booking"}
               className="inline-flex items-center px-8 py-4 border-2 border-zinc-900 text-zinc-900 font-semibold rounded-xl hover:bg-zinc-900 hover:text-white transition-all duration-200"
-              target={env.calendly ? "_blank" : undefined}
-              rel={env.calendly ? "noopener noreferrer" : undefined}
+              target={process.env.NEXT_PUBLIC_CALENDLY_URL ? "_blank" : undefined}
+              rel={process.env.NEXT_PUBLIC_CALENDLY_URL ? "noopener noreferrer" : undefined}
             >
               Ask Questions
             </a>

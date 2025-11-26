@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import Stripe from "stripe";
+import { getBaseUrl } from "@/lib/env";
 
 export const runtime = "nodejs";
 
 export async function POST() {
   const session = await auth();
-  const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
+  const baseUrl = getBaseUrl();
   
   if (!session?.user?.email) {
     return NextResponse.redirect(new URL("/signin", baseUrl));

@@ -1,7 +1,8 @@
 import { Resend } from 'resend'
+import { env, getBaseUrl, getNotifyFromEmail } from '@/lib/env'
 
-// Only create Resend client if API key is available
-const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null
+// Resend client (RESEND_API_KEY is required by env schema)
+const resend = new Resend(env.RESEND_API_KEY)
 
 interface AppointmentWithIncludes {
   id: string
@@ -22,15 +23,9 @@ interface AppointmentWithIncludes {
 }
 
 export async function sendBookingEmail(appointment: AppointmentWithIncludes, type: 'created' | 'cancelled' = 'created', icsContent?: string): Promise<{ emailed: boolean; reason?: string }> {
-  // Skip email if RESEND_API_KEY not configured
-  if (!process.env.RESEND_API_KEY || !process.env.NOTIFY_FROM || !resend) {
-    console.log('Email skipped: RESEND_API_KEY or NOTIFY_FROM not configured')
-    return { emailed: false, reason: 'no-resend' }
-  }
-
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:9999"
+  const appUrl = env.appUrl || "http://localhost:9999"
   const notifyTo = process.env.NOTIFY_TO || "bookings@lefade.com"
-  const notifyFrom = process.env.NOTIFY_FROM || "Le Fade <no-reply@lefade.com>"
+  const notifyFrom = getNotifyFromEmail()
   
   const date = new Date(appointment.startAt).toLocaleDateString('en-US', {
     weekday: 'long',
@@ -61,7 +56,7 @@ export async function sendBookingEmail(appointment: AppointmentWithIncludes, typ
     }
 
     // Customer confirmation email
-    await resend!.emails.send({
+    await resend.emails.send({
       from: notifyFrom,
       to: [appointment.client.email],
       subject: isCreated ? 
@@ -152,7 +147,7 @@ export async function sendBookingEmail(appointment: AppointmentWithIncludes, typ
     })
 
     // Internal notification email
-    await resend!.emails.send({
+    await resend.emails.send({
       from: notifyFrom,
       to: [notifyTo],
       subject: `${isCreated ? 'New Booking' : 'Booking Update'}: ${appointment.client.name} - ${planName} - ${date} ${time}`,
@@ -208,5 +203,42 @@ export async function sendBookingEmail(appointment: AppointmentWithIncludes, typ
   } catch (error) {
     console.error('Failed to send booking emails:', error)
     return { emailed: false }
+  }
+}
+
+export async function sendPasswordResetEmail(to: string, token: string): Promise<{ emailed: boolean; reason?: string }> {
+  const baseUrl = getBaseUrl()
+  const resetUrl = `${baseUrl}/reset-password?token=${encodeURIComponent(token)}`
+  const notifyFrom = getNotifyFromEmail()
+
+  try {
+    await resend.emails.send({
+      from: notifyFrom,
+      to,
+      subject: "Reset your LaFade password",
+      html: `
+        <div style="font-family:system-ui,sans-serif;max-width:600px;margin:0 auto;padding:20px">
+          <h2 style="color:#18181b;margin-bottom:16px">Reset your LaFade password</h2>
+          <p style="color:#18181b;line-height:1.6">
+            Click the link below to choose a new password:
+          </p>
+          <p style="margin:24px 0">
+            <a href="${resetUrl}" style="display:inline-block;background:#18181b;color:white;padding:12px 24px;text-decoration:none;border-radius:8px;font-weight:600">
+              Reset password
+            </a>
+          </p>
+          <p style="color:#71717a;font-size:0.9rem;margin-top:24px">
+            This link will expire in 60 minutes. If you did not request a reset, you can ignore this email.
+          </p>
+        </div>
+      `,
+      text: `Reset your LaFade password:\n\n${resetUrl}\n\nThis link expires in 60 minutes.`,
+    })
+
+    console.log('Password reset email sent successfully')
+    return { emailed: true }
+  } catch (error) {
+    console.error('Failed to send password reset email:', error)
+    return { emailed: false, reason: 'send-failed' }
   }
 }

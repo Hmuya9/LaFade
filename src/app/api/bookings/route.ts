@@ -1,13 +1,36 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { auth } from "@/lib/auth";
 import { debit } from "@/lib/points";
 import { z } from "zod";
 import crypto from "crypto";
 import { buildICS } from "@/lib/calendar";
 import { sendBookingEmail } from "@/lib/notify";
+import { sendBookingEmailsSafe } from "@/lib/email";
+import { pusherServer } from "@/lib/pusher";
+import { auth } from "@/lib/auth";
 
 export const runtime = "nodejs";
+
+/**
+ * Booking API Route
+ * 
+ * Database assumptions:
+ * - Single SQLite file at web/prisma/dev.db
+ * - DATABASE_URL="file:./prisma/dev.db" (relative to web/)
+ * - No custom path resolution - Prisma handles relative paths correctly
+ * 
+ * User lookup:
+ * - Resolves user by email from session (same as /account page)
+ * - Ensures user has role CLIENT before allowing booking
+ * 
+ * Appointment statuses:
+ * - BOOKED/CONFIRMED count as active (conflict detection)
+ * - CANCELED/COMPLETED/NO_SHOW don't count as conflicts
+ * 
+ * Email sending:
+ * - Fire-and-forget, never blocks booking creation
+ * - sendBookingEmailsSafe() is wrapped in .catch() to prevent errors
+ */
 
 const createBookingSchema = z.object({
   customerName: z.string().min(2),
@@ -15,10 +38,11 @@ const createBookingSchema = z.object({
   customerPhone: z.string().min(10),
   selectedDate: z.string(),           // YYYY-MM-DD
   selectedTime: z.string(),           // e.g., "10:00 AM"
-  selectedBarber: z.string(),         // "Mike" | "Alex"
+  selectedBarber: z.string(),         // Barber ID (cuid) or name (legacy support)
   plan: z.enum(["standard", "deluxe", "trial"]),
   location: z.string().optional(),    // address for deluxe (ignored for trial)
   notes: z.string().optional(),
+  rescheduleOf: z.string().optional(), // Appointment ID being rescheduled
 });
 
 type EmailResult = { emailed: boolean; reason?: string };
@@ -35,53 +59,144 @@ function generateIdempotencyKey(email: string, barberId: string, startAtUTC: Dat
     .digest('hex');
 }
 
+/**
+ * Booking API Route
+ * 
+ * Database assumptions:
+ * - Single SQLite file at web/prisma/dev.db
+ * - DATABASE_URL="file:./prisma/dev.db"
+ * 
+ * User lookup:
+ * - Resolves user by email from session (same as /account page)
+ * - Ensures user has role CLIENT before allowing booking
+ * 
+ * Appointment statuses:
+ * - BOOKED/CONFIRMED count as active (conflict detection)
+ * - CANCELED/COMPLETED/NO_SHOW don't count as conflicts
+ */
 export async function POST(req: NextRequest) {
+  console.log('[booking][start]', { url: req.url, method: req.method });
+
   try {
-    // Check authentication
+    // Resolve current user by email (simple, consistent approach)
     const session = await auth();
-    
-    if (!session?.user?.email || session.user.role !== "CLIENT") {
+    if (!session?.user?.email) {
+      console.warn('[booking][auth]', 'no session user');
       return NextResponse.json(
-        { error: "Authentication required. Please sign in to book an appointment." },
+        { ok: false, message: "Please sign in to book a cut." },
         { status: 401 }
       );
     }
 
+    const user = await prisma.user.findUnique({
+      where: { email: session.user.email },
+    });
+
+    if (!user) {
+      console.warn('[booking][auth]', 'user not found', { email: session.user.email });
+      return NextResponse.json(
+        { ok: false, message: "User account not found. Please sign in again." },
+        { status: 401 }
+      );
+    }
+
+    if (user.role !== "CLIENT") {
+      console.warn('[booking][validation]', 'user_not_client', {
+        userId: user.id,
+        role: user.role,
+      });
+      return NextResponse.json(
+        { ok: false, message: "Invalid client account. Please sign in as a client." },
+        { status: 403 }
+      );
+    }
+
+    const client = user;
+
     // Guard against empty requests
     const contentType = req.headers.get('content-type');
     if (!contentType || !contentType.includes('application/json')) {
-      return NextResponse.json({ Error: "Content-Type must be application/json" }, { status: 400 });
+      console.warn('[booking] validation failed', {
+        reason: 'invalid_content_type',
+        contentType,
+      });
+      return NextResponse.json(
+        { ok: false, message: "Content-Type must be application/json" },
+        { status: 400 }
+      );
     }
 
     let body;
     try {
       body = await req.json();
     } catch (parseError) {
-      console.error("JSON parsing error:", parseError);
-      return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+      console.warn('[booking][validation]', 'json_parse_error', {
+        error: parseError instanceof Error ? parseError.message : String(parseError),
+      });
+      return NextResponse.json(
+        { ok: false, message: "Invalid request format. Please try again." },
+        { status: 400 }
+      );
     }
 
-    const data = createBookingSchema.parse(body);
+    console.log('[booking][body]', body);
 
-    // Find or create client
-    let client = await prisma.user.findFirst({ where: { email: data.customerEmail } });
-    if (!client) {
-      client = await prisma.user.create({
-        data: {
-          name: data.customerName,
-          email: data.customerEmail,
-          phone: data.customerPhone,
-          role: "CLIENT",
+    const parsed = createBookingSchema.safeParse(body);
+    if (!parsed.success) {
+      console.warn('[booking][validation]', 'schema_validation_failed', {
+        details: parsed.error.issues,
+      });
+      return NextResponse.json(
+        { ok: false, message: "Validation failed", details: parsed.error.issues },
+        { status: 400 }
+      );
+    }
+    const data = parsed.data;
+
+    console.log('[booking] request body parsed', {
+      plan: data.plan,
+      date: data.selectedDate,
+      time: data.selectedTime,
+      barberId: data.selectedBarber,
+      rescheduleOf: data.rescheduleOf || null,
+    });
+
+    if (client.role !== "CLIENT") {
+      console.warn('[booking][validation]', 'client_not_found_or_wrong_role', {
+        clientId: client.id,
+        clientRole: client.role,
+      });
+      return NextResponse.json(
+        { ok: false, message: "Invalid client account. Please sign in as a client." },
+        { status: 403 }
+      );
+    }
+
+    const finalClientId = client.id;
+
+    // Find barber by ID (preferred) or name (legacy support)
+    let barber = await prisma.user.findUnique({
+      where: { id: data.selectedBarber },
+    });
+    
+    // If not found by ID, try by name (legacy support)
+    if (!barber || (barber.role !== "BARBER" && barber.role !== "OWNER")) {
+      barber = await prisma.user.findFirst({
+        where: { 
+          name: data.selectedBarber, 
+          role: { in: ["BARBER", "OWNER"] },
         },
       });
     }
-
-    // Find barber by name
-    const barber = await prisma.user.findFirst({
-      where: { name: data.selectedBarber, role: "BARBER" },
-    });
-    if (!barber) {
-      return NextResponse.json({ error: "Barber not found" }, { status: 404 });
+    
+    if (!barber || (barber.role !== "BARBER" && barber.role !== "OWNER")) {
+      console.warn('[booking][validation]', 'barber_not_found', {
+        selectedBarber: data.selectedBarber,
+      });
+      return NextResponse.json(
+        { ok: false, message: "Barber not found. Please select a valid barber." },
+        { status: 404 }
+      );
     }
 
     // Parse to UTC
@@ -109,149 +224,328 @@ export async function POST(req: NextRequest) {
     });
 
     if (existingAppointment) {
+      console.log('[booking] Idempotent request - returning existing appointment', { appointmentId: existingAppointment.id });
       return NextResponse.json({ 
+        ok: true,
         appointment: existingAppointment,
+        appointmentId: existingAppointment.id,
         emailed: false,
         message: "Booking already exists" 
       }, { status: 200 });
     }
 
+    // Handle reschedule flow: if rescheduleOf is provided, we need to cancel the old appointment first
+    let oldAppointmentId: string | null = null;
+    if (data.rescheduleOf) {
+      // Load the existing appointment
+      const oldAppointment = await prisma.appointment.findUnique({
+        where: { id: data.rescheduleOf },
+        include: {
+          client: { select: { id: true } },
+        },
+      });
+
+      if (!oldAppointment) {
+        console.error('[booking] Reschedule: old appointment not found', { rescheduleOf: data.rescheduleOf });
+        return NextResponse.json(
+          { ok: false, message: "The appointment you're trying to reschedule was not found." },
+          { status: 404 }
+        );
+      }
+
+      // Ensure it belongs to the logged-in client
+      if (oldAppointment.clientId !== finalClientId) {
+        console.error('[booking] Reschedule: client mismatch', {
+          oldAppointmentClientId: oldAppointment.clientId,
+          currentClientId: finalClientId,
+        });
+        return NextResponse.json(
+          { ok: false, message: "You can only reschedule your own appointments." },
+          { status: 403 }
+        );
+      }
+
+      // Ensure it's not already CANCELED, COMPLETED, or NO_SHOW
+      if (["CANCELED", "COMPLETED", "NO_SHOW"].includes(oldAppointment.status)) {
+        console.error('[booking] Reschedule: old appointment already finalized', {
+          appointmentId: oldAppointment.id,
+          status: oldAppointment.status,
+        });
+        return NextResponse.json(
+          { ok: false, message: "This appointment cannot be rescheduled because it's already canceled, completed, or marked as no-show." },
+          { status: 400 }
+        );
+      }
+
+      oldAppointmentId = oldAppointment.id;
+    }
+
     // Overlap check: verify no existing appointment for this barber during this time
+    // Only check BOOKED/CONFIRMED statuses that are in the future
+    // CANCELED, COMPLETED, NO_SHOW don't count as conflicts
     const overlappingAppointment = await prisma.appointment.findFirst({
       where: {
         barberId: barber.id,
-        startAt: { lt: endAtUTC },
+        startAt: { lt: endAtUTC, gte: new Date() }, // Only check future appointments
         endAt: { gt: startAtUTC },
         status: { in: ["BOOKED", "CONFIRMED"] },
+        // Exclude the old appointment if we're rescheduling
+        ...(oldAppointmentId ? { id: { not: oldAppointmentId } } : {}),
       },
-      select: { id: true, startAt: true },
+      select: { id: true, startAt: true, status: true },
     });
 
     if (overlappingAppointment) {
-      return NextResponse.json({ 
-        error: "That time was just taken—please pick another." 
-      }, { status: 409 });
+      console.error('[booking] Barber conflict detected', {
+        barberId: barber.id,
+        newStartAt: startAtUTC.toISOString(),
+        conflictingAppointmentId: overlappingAppointment.id,
+      });
+      return NextResponse.json(
+        { ok: false, message: "This time is no longer available. Please pick another time." },
+        { status: 409 }
+      );
     }
 
     // Duplicate booking prevention (same client + time)
-    const duplicateAppointment = await prisma.appointment.findFirst({
-      where: {
-        clientId: client.id,
-        startAt: startAtUTC,
-        status: { in: ["BOOKED", "CONFIRMED"] },
-      },
-      select: { id: true },
-    });
-
-    if (duplicateAppointment) {
-      return NextResponse.json({ 
-        error: "You already have an appointment at this time." 
-      }, { status: 409 });
+    // Only check BOOKED/CONFIRMED statuses that are in the future
+    // Exclude the old appointment if we're rescheduling
+    // Only check future appointments - past bookings don't block new ones
+    const now = new Date();
+    let duplicateAppointment = null;
+    
+    // Only check for duplicates if the new booking is in the future
+    if (startAtUTC >= now) {
+      duplicateAppointment = await prisma.appointment.findFirst({
+        where: {
+          clientId: finalClientId,
+          startAt: startAtUTC,
+          status: { in: ["BOOKED", "CONFIRMED"] },
+          // Exclude the old appointment if we're rescheduling
+          ...(oldAppointmentId ? { id: { not: oldAppointmentId } } : {}),
+        },
+        select: { id: true, startAt: true, status: true },
+      });
     }
 
-    // One trial per customer enforcement
+    if (duplicateAppointment) {
+      console.error('[booking] Client conflict detected', {
+        clientId: finalClientId,
+        newStartAt: startAtUTC.toISOString(),
+        conflictingAppointmentId: duplicateAppointment.id,
+        conflictingStatus: duplicateAppointment.status,
+        conflictingStartAt: duplicateAppointment.startAt.toISOString(),
+      });
+      return NextResponse.json(
+        { ok: false, message: "You already have a booking at this time." },
+        { status: 409 }
+      );
+    }
+
+    // Free Test Cut rules (LAUNCH VERSION):
+    // Client should not be blocked from using Free Test Cut again if they canceled before the appointment time.
+    // Only block if they have a future non-canceled free appointment.
     if (data.plan === "trial") {
       const previousTrial = await prisma.appointment.findFirst({
         where: {
-          clientId: client.id,
-          isFree: true
+          clientId: finalClientId,
+          isFree: true,
+          status: {
+            not: "CANCELED" // Only block if they have a non-canceled free appointment
+          },
+          startAt: {
+            gte: new Date() // Only check future appointments
+          },
+          // Exclude the old appointment if we're rescheduling a free trial
+          ...(oldAppointmentId ? { id: { not: oldAppointmentId } } : {}),
         },
-        select: { id: true },
+        select: { id: true, status: true, startAt: true },
       });
       if (previousTrial) {
-        return NextResponse.json({ 
-          error: "Trial already used. Please choose a plan." 
-        }, { status: 409 });
+        console.error('[booking] Trial blocked - existing non-canceled future trial found', {
+          clientId: finalClientId,
+          existingTrialId: previousTrial.id,
+          existingTrialStatus: previousTrial.status,
+          existingTrialStartAt: previousTrial.startAt.toISOString(),
+        });
+        return NextResponse.json(
+          { ok: false, message: "You already have a free test cut scheduled. Cancel it first to book another." },
+          { status: 400 }
+        );
       }
     }
 
+    // === DEBUG: Log exact data passed to create (ALWAYS ON for debugging) ===
+    const appointmentData = {
+      clientId: finalClientId,
+      barberId: barber.id,
+      type: data.plan === "deluxe" ? "HOME" : "SHOP" as const,
+      startAt: startAtUTC,
+      endAt: endAtUTC,
+      status: "BOOKED" as const,
+      address: data.plan === "deluxe" ? (data.location || null) : null, // Only deluxe (HOME) has address
+      notes: data.notes || null,
+      isFree: data.plan === "trial",
+      idempotencyKey,
+    };
+
+    console.log('[booking] creating appointment', {
+      clientId: finalClientId,
+      sessionUserId: (session.user as any)?.id,
+      sessionEmail: session.user?.email,
+      barberId: barber.id,
+      startAt: startAtUTC.toISOString(),
+      endAt: endAtUTC.toISOString(),
+      plan: data.plan,
+      isFree: data.plan === "trial",
+      type: data.plan === "deluxe" ? "HOME" : "SHOP",
+      rescheduleOf: data.rescheduleOf || null,
+    });
+
     // Create appointment with proper error handling
+    // If rescheduling, use a transaction to cancel old and create new atomically
     let appointment;
     try {
-      appointment = await prisma.appointment.create({
-        data: {
-          clientId: client.id,
-          barberId: barber.id,
-          type: data.plan === "deluxe" ? "HOME" : "SHOP",
-          startAt: startAtUTC,
-          endAt: endAtUTC,
-          status: "BOOKED",
-          address: data.plan === "trial" ? null : data.location,
-          notes: data.notes,
-          isFree: data.plan === "trial",
-          idempotencyKey,
-        },
-        include: {
-          client: { select: { name: true, email: true, phone: true } },
-          barber: { select: { name: true } },
-        },
+      if (oldAppointmentId) {
+        // Reschedule: transaction to cancel old and create new
+        console.log("[booking][DEBUG] Reschedule flow: using transaction to cancel old and create new");
+        const result = await prisma.$transaction(async (tx) => {
+          // Cancel the old appointment
+          await tx.appointment.update({
+            where: { id: oldAppointmentId! },
+            data: {
+              status: "CANCELED",
+              cancelReason: "Client rescheduled via app",
+            },
+          });
+          console.log("[booking][DEBUG] Old appointment canceled:", oldAppointmentId);
+
+          // Create the new appointment
+          const newAppt = await tx.appointment.create({
+            data: appointmentData,
+            include: {
+              client: { select: { name: true, email: true, phone: true } },
+              barber: { select: { name: true, email: true } },
+            },
+          });
+          console.log("[booking][DEBUG] New appointment created:", newAppt.id);
+          return newAppt;
+        });
+        appointment = result;
+      } else {
+        // Regular booking: just create
+        console.log("[booking][DEBUG] Regular booking: calling prisma.appointment.create()...");
+        console.log("[booking][DEBUG] Prisma create() data:", JSON.stringify(appointmentData, (key, value) => {
+          if (value instanceof Date) return value.toISOString();
+          return value;
+        }, 2));
+        
+        appointment = await prisma.appointment.create({
+          data: appointmentData,
+          include: {
+            client: { select: { name: true, email: true, phone: true } },
+            barber: { select: { name: true, email: true } },
+          },
+        });
+      }
+
+      // Ultra-clear log after creating appointment
+      console.log('[booking][created]', {
+        id: appointment.id,
+        clientId: appointment.clientId,
+        barberId: appointment.barberId,
+        startAt: appointment.startAt.toISOString(),
+        status: appointment.status,
       });
-    } catch (uniqueError) {
+      
+      // Trigger email notifications (fire-and-forget, never blocks booking)
+      try {
+        void sendBookingEmailsSafe(appointment.id);
+        console.log('[booking][email] Triggered email notifications', { appointmentId: appointment.id });
+      } catch (err) {
+        console.error('[booking][email] Unexpected error triggering emails', err);
+      }
+      
+      // Verify appointment was actually created
+      if (!appointment || !appointment.id) {
+        throw new Error("Appointment creation returned null or missing ID");
+      }
+      
+      console.log("[booking][DEBUG] ✅ Appointment verified - ID exists:", appointment.id);
+    } catch (createError: any) {
+      // === DEBUG: Log full error object (ALWAYS ON for debugging) ===
+      console.error("[booking][ERROR] Appointment creation failed:", {
+        error: createError?.message || String(createError),
+        code: createError?.code || "UNKNOWN",
+        meta: createError?.meta || null,
+        clientId: finalClientId,
+        barberId: barber.id,
+        startAt: startAtUTC.toISOString(),
+        endAt: endAtUTC.toISOString(),
+        stack: createError?.stack || undefined,
+        errorName: createError?.name,
+        errorCause: createError?.cause,
+        fullError: JSON.stringify(createError, Object.getOwnPropertyNames(createError), 2),
+      });
+
       // Handle unique constraint violation (barber time conflict)
-      if (isPrismaUniqueError(uniqueError)) {
+      if (isPrismaUniqueError(createError)) {
+        console.error("[booking][ERROR] Unique constraint violation detected");
         return NextResponse.json({ 
           error: "Time slot no longer available. Please pick another time." 
         }, { status: 409 });
       }
-      throw uniqueError; // Re-throw other errors
+
+      // Re-throw to be caught by outer try-catch
+      console.error("[booking][ERROR] Re-throwing error to outer catch block");
+      throw createError;
     }
 
-    // Mark availability slot as booked
-    try {
-      const timeSlotString = data.selectedTime; // e.g., "10:00 AM"
-      const dateOnly = data.selectedDate; // e.g., "2025-10-15"
-
-      await prisma.availability.updateMany({
-        where: {
-          barberName: data.selectedBarber,
-          date: {
-            gte: new Date(`${dateOnly}T00:00:00.000Z`),
-            lt: new Date(`${dateOnly}T23:59:59.999Z`)
-          },
-          timeSlot: timeSlotString,
-          isBooked: false
-        },
-        data: {
-          isBooked: true
-        }
-      });
-
-      console.log(`✅ Marked availability as booked: ${data.selectedBarber} on ${dateOnly} at ${timeSlotString}`);
-    } catch (availabilityError) {
-      console.error('Failed to update availability:', availabilityError);
-      // Don't fail the booking if availability update fails - appointment is already created
-    }
+    // Note: Availability is now managed via weekly ranges (BarberAvailability model)
+    // and conflict detection via Appointment model. No need to update legacy Availability table.
+    // The availability API automatically excludes booked appointments when generating slots.
 
     // Debit points for booking (except for free trials)
+    // Free Test Cut (trial plan) requires 0 points and bypasses the points check entirely
     if (data.plan !== "trial") {
       try {
-        await debit(session.user.id as string, 5, 'BOOKING_DEBIT', 'BOOKING', appointment.id);
-        console.log(`✅ Debited 5 points from user ${session.user.id} for booking ${appointment.id}`);
+        await debit(finalClientId, 5, 'BOOKING_DEBIT', 'BOOKING', appointment.id);
+        if (process.env.NODE_ENV === "development") {
+          console.log(`✅ Debited 5 points from user ${finalClientId} for booking ${appointment.id}`);
+        }
       } catch (pointsError: any) {
         // If insufficient points, rollback the appointment
         await prisma.appointment.delete({ where: { id: appointment.id } });
         
-        // Revert availability
-        await prisma.availability.updateMany({
-          where: {
-            barberName: data.selectedBarber,
-            date: {
-              gte: new Date(`${data.selectedDate}T00:00:00.000Z`),
-              lt: new Date(`${data.selectedDate}T23:59:59.999Z`)
-            },
-            timeSlot: data.selectedTime,
-            isBooked: true
-          },
-          data: {
-            isBooked: false
-          }
-        });
+        if (process.env.NODE_ENV === "development") {
+          console.error("[bookings] Points debit failed, rolled back appointment:", pointsError.message);
+        }
         
         return NextResponse.json(
-          { error: "Not enough points. Please subscribe or renew to continue." },
+          { ok: false, message: "Not enough points. Please subscribe or renew to continue." },
           { status: 402 }
         );
       }
+    } else {
+      // Free Test Cut: no points required, log for debugging
+      if (process.env.NODE_ENV === "development") {
+        console.log(`✅ Free Test Cut booking created (no points deducted): ${appointment.id}`);
+      }
+    }
+
+    // Notify barber dashboard in real time
+    try {
+      await pusherServer.trigger("lafade-bookings", "booking.created", {
+        appointmentId: appointment.id,
+        clientId: appointment.clientId,
+        barberId: appointment.barberId,
+        startAt: appointment.startAt,
+        type: appointment.type,
+        isFree: appointment.isFree,
+        createdAt: new Date(),
+      });
+    } catch (error) {
+      console.error("Pusher booking.created error", error);
     }
 
     // Generate calendar invite
@@ -267,7 +561,7 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    // Send email with calendar invite
+    // Send email with calendar invite (legacy function - keeps existing behavior)
     let emailResult: EmailResult = { emailed: false, reason: 'no-resend' };
     try {
       // Transform appointment to match expected interface with non-null fields
@@ -288,23 +582,59 @@ export async function POST(req: NextRequest) {
       // Continue anyway - don't fail the booking
     }
 
+    // Email sending is already triggered above after appointment creation
+    // This duplicate call is removed to avoid double-sending
+
     // Generate ICS URL for frontend download (fallback when email disabled)
     const icsBase64 = Buffer.from(icsContent).toString('base64');
     const icsUrl = `/api/bookings/ics/${appointment.id}`;
 
-    return NextResponse.json({ 
+    console.log('[booking] booking flow complete', {
+      appointmentId: appointment.id,
+      clientId: appointment.clientId,
+      status: appointment.status,
+      startAt: appointment.startAt.toISOString(),
+    });
+
+    // Ensure response includes ok: true and appointmentId
+    const response = { 
+      ok: true,
+      appointmentId: appointment.id,
+      message: 'Booking created successfully',
       appointment, 
       emailed: emailResult.emailed,
       reason: emailResult.reason,
       icsUrl: emailResult.emailed ? undefined : icsUrl,
       icsContent: emailResult.emailed ? undefined : icsBase64 
-    }, { status: 201 });
-  } catch (err) {
-    if (err instanceof z.ZodError) {
-      return NextResponse.json({ error: "Validation failed", details: err.issues }, { status: 400 });
+    };
+    
+    console.log("[booking][DEBUG] Final response payload:", JSON.stringify(response, (key, value) => {
+      if (value instanceof Date) return value.toISOString();
+      return value;
+    }, 2));
+    
+    return NextResponse.json(response, { status: 201 });
+  } catch (error: any) {
+    console.error('[booking][fatal]', error);
+    console.error('[booking][fatal]', {
+      message: error?.message || String(error),
+      stack: error?.stack,
+      code: error?.code,
+      meta: error?.meta,
+    });
+
+    if (error instanceof z.ZodError) {
+      console.warn('[booking][validation]', 'zod_error', { issues: error.issues });
+      return NextResponse.json(
+        { ok: false, message: "Invalid booking request. Please check your selections.", errors: error.issues },
+        { status: 400 }
+      );
     }
-    console.error("POST /api/bookings error:", err);
-    return NextResponse.json({ error: "Failed to create booking" }, { status: 500 });
+
+    return NextResponse.json(
+      { ok: false, message: 'Unexpected error while creating booking.' },
+      { status: 500 }
+    );
   }
 }
 

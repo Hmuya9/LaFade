@@ -2,13 +2,14 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { requireAdmin } from "@/lib/admin";
 import { Resend } from "resend";
+import { env, getBaseUrl, getNotifyFromEmail } from "@/lib/env";
 
 export const runtime = "nodejs";
 
 export async function POST(req: Request) {
   await requireAdmin();
   
-  const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
+  const baseUrl = getBaseUrl();
   const form = await req.formData();
   const subject = String(form.get("subject") || "").trim();
   const message = String(form.get("message") || "").trim();
@@ -22,11 +23,11 @@ export async function POST(req: Request) {
     select: { email: true } 
   });
   
-  const resend = new Resend(process.env.RESEND_API_KEY);
+  const resend = new Resend(env.RESEND_API_KEY);
 
   // Naive fan-out (for small lists; for large, batch/queue)
   await Promise.allSettled(users.map(u => resend.emails.send({
-    from: process.env.EMAIL_FROM || "onboarding@resend.dev",
+    from: getNotifyFromEmail(),
     to: u.email!,
     subject,
     html: `<p>${message.replace(/\n/g, "<br/>")}</p>`

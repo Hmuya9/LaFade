@@ -1,16 +1,35 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/db"
 import { redisGet, redisSet } from "@/lib/redis"
-import { generateTimeSlots, parseBarberIdentifier } from "@/lib/hours"
+import { getAvailableSlotsForDate, findBarberByIdOrName } from "@/lib/availability"
 
 export const runtime = "nodejs";
 export const dynamic = 'force-dynamic'
 
+/**
+ * Availability API endpoint.
+ * 
+ * NEW SYSTEM: Uses BarberAvailability (weekly recurring ranges) + Appointment conflicts.
+ * 
+ * Query params:
+ * - date: Required. Date in "YYYY-MM-DD" format
+ * - barberId: Required. Barber's user ID
+ * - plan: Optional. Plan type (for future use)
+ * 
+ * Returns available time slots based on:
+ * 1. Barber's weekly availability ranges (BarberAvailability model)
+ * 2. Excludes slots that conflict with existing appointments (Appointment model)
+ * 
+ * Removed:
+ * - barberName (old Availability model system)
+ * - isBooked flag (old Availability model)
+ */
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
     const dateStr = searchParams.get("date")
-    let barberName = (searchParams.get("barberName") ?? process.env.BARBER_NAME ?? "CKENZO").trim()
+    const barberId = searchParams.get("barberId") || undefined
+    const barberName = searchParams.get("barberName") || undefined // Legacy support only
     const plan = searchParams.get("plan")
 
     if (!dateStr) {
@@ -20,73 +39,80 @@ export async function GET(request: NextRequest) {
       )
     }
 
+    if (!barberId && !barberName) {
+      return NextResponse.json(
+        { error: "Missing barberId or barberName parameter" },
+        { status: 400 }
+      )
+    }
+
+    // Find barber by ID or name (name is legacy support only)
+    const barber = await findBarberByIdOrName(barberId, barberName)
+    
+    if (!barber) {
+      return NextResponse.json(
+        { error: "Barber not found" },
+        { status: 404 }
+      )
+    }
+
+    if (process.env.NODE_ENV === "development") {
+      console.log("[availability] Fetching slots:", { barberId: barber.id, dateStr, plan });
+    }
+
     // Check cache first (graceful fallback if Redis unavailable)
-    const cacheKey = `avail:${barberName}:${dateStr}:${plan || 'any'}`
+    const cacheKey = `avail:${barber.id}:${dateStr}:${plan || 'any'}`
     let cached;
     try {
       cached = await redisGet<any>(cacheKey)
       if (cached) {
+        if (process.env.NODE_ENV === "development") {
+          console.log("[availability] Cache hit:", { barberId: barber.id, dateStr, slots: cached.totalSlots });
+        }
         return NextResponse.json(cached)
       }
     } catch (redisError) {
-      console.log('Redis cache unavailable, continuing without cache')
+      console.log('[availability] Redis cache unavailable, continuing without cache')
     }
 
-    // Query availability records for this barber and date (using UTC)
-    const startOfDay = new Date(dateStr + 'T00:00:00.000Z')
-    const endOfDay = new Date(dateStr + 'T23:59:59.999Z')
+    // Get available slots from weekly availability system
+    const availableSlots = await getAvailableSlotsForDate(barber.id, dateStr)
 
-    const availabilityRecords = await prisma.availability.findMany({
-      where: {
-        barberName: barberName, // Direct match (case-sensitive for SQLite)
-        date: {
-          gte: startOfDay,
-          lte: endOfDay,
-        },
-        isBooked: false, // Only get available slots
-      },
-      orderBy: {
-        timeSlot: 'asc'
-      }
-    })
+    if (process.env.NODE_ENV === "development") {
+      console.log("[availability] Generated slots:", { 
+        barberId: barber.id, 
+        dateStr, 
+        count: availableSlots.length,
+        slots: availableSlots.slice(0, 5) // Log first 5 slots
+      });
+    }
 
-    // Format available slots for frontend compatibility
-    const formattedSlots = availabilityRecords.map(record => ({
-      time: record.timeSlot,
+    // Format for frontend compatibility
+    const formattedSlots = availableSlots.map(time => ({
+      time,
       available: true,
     }))
 
-    // Get total slots for this barber and date (both booked and available)
-    const totalAvailabilityRecords = await prisma.availability.findMany({
-      where: {
-        barberName: barberName, // Direct match (case-sensitive for SQLite)
-        date: {
-          gte: startOfDay,
-          lte: endOfDay,
-        },
-      }
-    })
-
     const result = {
-      barberId: null, // Not using barber ID anymore
-      barberName: barberName,
+      barberId: barber.id,
+      barberName: barber.name || "Unknown",
       date: dateStr,
       plan: plan || 'any',
       availableSlots: formattedSlots,
-      totalSlots: totalAvailabilityRecords.length,
-      bookedSlots: totalAvailabilityRecords.length - formattedSlots.length,
+      totalSlots: availableSlots.length,
+      bookedSlots: 0, // Not tracked separately in new system (conflicts handled via Appointment table)
     }
 
     // Cache for 60 seconds (graceful fallback if Redis fails)
     try {
       await redisSet(cacheKey, result, 60)
     } catch (redisError) {
-      console.log('Cache set failed, continuing without caching')
+      console.log('[availability] Cache set failed, continuing without caching')
     }
 
     return NextResponse.json(result)
   } catch (error) {
-    console.error("Availability API error:", error)
+    console.error("[availability] API error:", error)
     return NextResponse.json(
       { error: "Failed to fetch availability" },
       { status: 500 }

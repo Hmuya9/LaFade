@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { PLANS } from "@/config/plans";
-import { env } from "@/lib/env";
 import { PricingCard } from "@/components/PricingCard";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { SkeletonList } from "@/components/ui/SkeletonList";
@@ -10,7 +9,15 @@ import { useState } from "react";
 
 export default function PlansPage() {
   const [loading, setLoading] = useState(false);
-  const missingStripe = !env.stripeStandard || !env.stripeDeluxe;
+  
+  // Use NEXT_PUBLIC_ env vars directly in client components
+  const stripeStandard = process.env.NEXT_PUBLIC_STRIPE_PRICE_STANDARD || "";
+  const stripeDeluxe = process.env.NEXT_PUBLIC_STRIPE_PRICE_DELUXE || "";
+  const linkStandard = process.env.NEXT_PUBLIC_STRIPE_LINK_STANDARD || "";
+  const linkDeluxe = process.env.NEXT_PUBLIC_STRIPE_LINK_DELUXE || "";
+  const calendly = process.env.NEXT_PUBLIC_CALENDLY_URL || "";
+  
+  const missingStripe = !stripeStandard || !stripeDeluxe;
 
   const handleClick = async (planId: string) => {
     setLoading(true);
@@ -24,13 +31,13 @@ export default function PlansPage() {
     
     if (missingStripe) {
       // Use payment links as fallback
-      const link = planId === "standard" ? env.linkStandard : env.linkDeluxe;
+      const link = planId === "standard" ? linkStandard : linkDeluxe;
       if (link) {
         window.open(link, "_blank");
       } else {
         // Fallback to Calendly for booking
-        if (env.calendly) {
-          window.open(env.calendly, "_blank");
+        if (calendly) {
+          window.open(calendly, "_blank");
         }
       }
     } else {
@@ -39,7 +46,7 @@ export default function PlansPage() {
         const response = await fetch("/api/create-checkout-session", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ priceId: planId === "standard" ? env.stripeStandard : env.stripeDeluxe }),
+          body: JSON.stringify({ priceId: planId === "standard" ? stripeStandard : stripeDeluxe }),
         });
         const { url } = await response.json();
         if (url) {
@@ -48,7 +55,7 @@ export default function PlansPage() {
       } catch (error) {
         // TODO: Add proper error logging service
         // Fallback to payment links
-        const link = planId === "standard" ? env.linkStandard : env.linkDeluxe;
+        const link = planId === "standard" ? linkStandard : linkDeluxe;
         if (link) {
           window.open(link, "_blank");
         } else {

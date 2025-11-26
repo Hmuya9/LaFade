@@ -45,7 +45,16 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const validatedData = createReviewSchema.parse(body)
+    const parsed = createReviewSchema.safeParse(body)
+    
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: "Validation failed", details: parsed.error.issues },
+        { status: 400 }
+      )
+    }
+    
+    const validatedData = parsed.data
 
     const review = await prisma.review.create({
       data: {

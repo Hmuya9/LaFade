@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { stripe } from "@/lib/stripe"
 import { prisma } from "@/lib/db"
 import { credit } from "@/lib/points"
+import { pusherServer } from "@/lib/pusher"
 import Stripe from "stripe"
 
 export const runtime = "nodejs";
@@ -460,6 +461,20 @@ async function handleAppointmentPayment(session: Stripe.Checkout.Session) {
         barber: { select: { name: true } },
       },
     })
+
+    try {
+      await pusherServer.trigger("lafade-bookings", "booking.created", {
+        appointmentId: appointment.id,
+        clientId: appointment.clientId,
+        barberId: appointment.barberId,
+        startAt: appointment.startAt,
+        type: appointment.type,
+        isFree: appointment.isFree,
+        createdAt: appointment.createdAt,
+      })
+    } catch (error) {
+      console.error("Pusher booking.created error", error)
+    }
 
     // Mark availability as booked
     try {

@@ -4,6 +4,7 @@ import "./globals.css";
 import { Navbar } from "@/components/Navbar";
 import { BRAND } from "@/lib/brand";
 import { Providers } from "@/components/providers";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -32,10 +33,12 @@ export default function RootLayout({
         className={`${inter.variable} min-h-screen bg-zinc-50 text-zinc-900 antialiased`}
       >
         <Providers>
-          <Navbar />
-          <main className="flex-1">
-            {children}
-          </main>
+          <ErrorBoundary>
+            <Navbar />
+            <main className="flex-1">
+              {children}
+            </main>
+          </ErrorBoundary>
         </Providers>
       </body>
     </html>
