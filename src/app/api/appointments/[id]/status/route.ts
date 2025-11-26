@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { z } from "zod";
+import type { ApptStatus } from "@prisma/client";
 
 export const runtime = "nodejs";
 export const dynamic = 'force-dynamic';
@@ -168,7 +169,7 @@ export async function PATCH(
 
     // Update appointment status
     // If canceling and reason provided, append to notes (simpler for launch than separate field)
-    const updateData: { status: string; notes?: string } = { status: newStatus };
+    const updateData: { status: ApptStatus; notes?: string } = { status: newStatus as ApptStatus };
     if (newStatus === "CANCELED" && reason) {
       const cancelNote = `Client canceled: ${reason}`;
       updateData.notes = appointment.notes 
