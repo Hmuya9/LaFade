@@ -2,12 +2,12 @@
 
 import { useFormState, useFormStatus } from "react-dom";
 import { useEffect } from "react";
-import { changePassword } from "../actions";
+import { changePassword, type PasswordActionResult } from "../actions";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 
-const initialState = {
+const initialState: PasswordActionResult = {
   success: false,
   message: "",
   fieldErrors: {} as Record<string, string[]>,
@@ -26,8 +26,20 @@ export interface ChangePasswordFormProps {
   onSuccess?: () => void;
 }
 
+// Adapter to satisfy useFormState signature
+async function changePasswordFormAction(
+  prevState: PasswordActionResult,
+  formData: FormData
+): Promise<PasswordActionResult> {
+  // Currently ignore prevState; delegate to action
+  return changePassword(formData);
+}
+
 export function ChangePasswordForm({ onSuccess }: ChangePasswordFormProps) {
-  const [state, formAction] = useFormState(changePassword, initialState);
+  const [state, formAction] = useFormState<PasswordActionResult, FormData>(
+    changePasswordFormAction,
+    initialState
+  );
 
   // Close modal on success
   useEffect(() => {
