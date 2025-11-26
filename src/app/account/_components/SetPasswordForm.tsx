@@ -2,12 +2,12 @@
 
 import { useFormState, useFormStatus } from "react-dom";
 import { useEffect } from "react";
-import { setPassword } from "../actions";
+import { setPassword, type PasswordActionResult } from "../actions";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 
-const initialState = {
+const initialState: PasswordActionResult = {
   success: false,
   message: "",
   fieldErrors: {} as Record<string, string[]>,
@@ -26,8 +26,19 @@ export interface SetPasswordFormProps {
   onSuccess?: () => void;
 }
 
+// Adapter to satisfy useFormState signature
+async function setPasswordFormAction(
+  prevState: PasswordActionResult,
+  formData: FormData
+): Promise<PasswordActionResult> {
+  return setPassword(formData);
+}
+
 export function SetPasswordForm({ onSuccess }: SetPasswordFormProps) {
-  const [state, formAction] = useFormState(setPassword, initialState);
+  const [state, formAction] = useFormState<PasswordActionResult, FormData>(
+    setPasswordFormAction,
+    initialState
+  );
 
   // Close modal on success
   useEffect(() => {
