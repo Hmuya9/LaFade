@@ -27,7 +27,7 @@ export const authOptions: NextAuthOptions = {
           pass: env.RESEND_API_KEY,
         },
       },
-      from: env.EMAIL_FROM,
+      from: env.EMAIL_FROM || "no-reply@lafade.com",
       async sendVerificationRequest({ identifier, url }) {
         // Use Resend API directly instead of Nodemailer
         const { Resend } = await import("resend");
@@ -35,7 +35,7 @@ export const authOptions: NextAuthOptions = {
         
         try {
           const res = await resend.emails.send({
-            from: env.EMAIL_FROM,
+            from: env.EMAIL_FROM || "no-reply@lafade.com",
             to: identifier,
             subject: "Your LaFade magic sign-in link",
             html: `

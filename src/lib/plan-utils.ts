@@ -11,7 +11,8 @@ export function isFreeTestCut(plan: Plan | null | undefined): boolean {
   // Primary check: plan ID
   if (plan.id === "trial") return true;
   // Fallback: price === 0 (defensive check)
-  if (plan.priceMonthlyCents === 0) return true;
+  // TS: Cast to number to allow comparison (runtime value is correct)
+  if ((plan.priceMonthlyCents as number) === 0) return true;
   return false;
 }
 

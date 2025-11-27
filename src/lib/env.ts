@@ -51,8 +51,8 @@ if (!serverParsed.success) {
   console.error("❌ Invalid server environment variables:", errors);
 
   // Fail fast on critical missing vars
-  const criticalVars = ["DATABASE_URL", "NEXTAUTH_SECRET"];
-  const missingCritical = criticalVars.filter((key) => errors[key]);
+  const criticalVars = ["DATABASE_URL", "NEXTAUTH_SECRET"] as const;
+  const missingCritical = criticalVars.filter((key) => errors[key as keyof typeof errors]);
 
   if (missingCritical.length > 0) {
     throw new Error(

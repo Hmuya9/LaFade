@@ -3,6 +3,8 @@ import { AuthCard } from "@/components/auth/AuthCard";
 import { Mail } from "lucide-react";
 import { MagicLinkForm } from "./MagicLinkForm";
 
+export const dynamic = 'force-dynamic';
+
 export default function SignInPage() {
   return (
     <AuthCard

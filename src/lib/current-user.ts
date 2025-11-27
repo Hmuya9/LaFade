@@ -42,7 +42,7 @@ export async function resolveCurrentUser(): Promise<ResolveResult> {
   let user: ResolvedUser | null = null;
 
   if (sessionUserId) {
-    user = await prisma.user.findUnique({
+    const foundUser = await prisma.user.findUnique({
       where: { id: sessionUserId },
       select: {
         id: true,
@@ -51,11 +51,14 @@ export async function resolveCurrentUser(): Promise<ResolveResult> {
         passwordHash: true,
       },
     });
-    method = "byId";
+    if (foundUser && foundUser.email) {
+      user = foundUser as ResolvedUser;
+      method = "byId";
+    }
   }
 
   if (!user && sessionEmail) {
-    user = await prisma.user.findUnique({
+    const foundUser = await prisma.user.findUnique({
       where: { email: sessionEmail },
       select: {
         id: true,
@@ -64,7 +67,10 @@ export async function resolveCurrentUser(): Promise<ResolveResult> {
         passwordHash: true,
       },
     });
-    method = "byEmail";
+    if (foundUser && foundUser.email) {
+      user = foundUser as ResolvedUser;
+      method = "byEmail";
+    }
   }
 
   if (!user || !method) {
