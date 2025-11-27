@@ -470,7 +470,8 @@ async function handleAppointmentPayment(session: Stripe.Checkout.Session) {
         startAt: appointment.startAt,
         type: appointment.type,
         isFree: appointment.isFree,
-        createdAt: appointment.createdAt,
+        // TS: allow createdAt since Prisma type doesn't include it in this include()
+        createdAt: (appointment as any).createdAt,
       })
     } catch (error) {
       console.error("Pusher booking.created error", error)
