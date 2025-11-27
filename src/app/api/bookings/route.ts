@@ -403,7 +403,28 @@ export async function POST(req: NextRequest) {
 
     // Create appointment with proper error handling
     // If rescheduling, use a transaction to cancel old and create new atomically
-    let appointment;
+    const includeSelect = {
+      client: { select: { name: true, email: true, phone: true } },
+      barber: { select: { name: true, email: true } },
+    } as const;
+
+    type AppointmentWithIncludes = {
+      id: string;
+      clientId: string;
+      barberId: string;
+      startAt: Date;
+      endAt: Date;
+      status: "BOOKED" | "CONFIRMED" | "COMPLETED" | "NO_SHOW" | "CANCELED";
+      type: "SHOP" | "HOME";
+      isFree: boolean;
+      address: string | null;
+      notes: string | null;
+      idempotencyKey: string | null;
+      cancelReason: string | null;
+      client: { name: string | null; email: string | null; phone: string | null };
+      barber: { name: string | null; email: string | null };
+    };
+    let appointment: AppointmentWithIncludes;
     try {
       if (oldAppointmentId) {
         // Reschedule: transaction to cancel old and create new
@@ -423,10 +444,7 @@ export async function POST(req: NextRequest) {
           const newAppt = await tx.appointment.create({
             // TS: relax type checking here, runtime is already working in dev
             data: appointmentData as any,
-            include: {
-              client: { select: { name: true, email: true, phone: true } },
-              barber: { select: { name: true, email: true } },
-            },
+            include: includeSelect,
           });
           console.log("[booking][DEBUG] New appointment created:", newAppt.id);
           return newAppt;
@@ -443,10 +461,7 @@ export async function POST(req: NextRequest) {
         appointment = await prisma.appointment.create({
           // TS: relax type checking here, runtime is already working in dev
           data: appointmentData as any,
-          include: {
-            client: { select: { name: true, email: true, phone: true } },
-            barber: { select: { name: true, email: true } },
-          },
+          include: includeSelect,
         });
       }
 
