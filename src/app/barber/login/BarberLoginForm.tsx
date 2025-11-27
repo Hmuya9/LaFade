@@ -8,19 +8,18 @@ import { Button } from "@/components/ui/button";
 
 export function BarberLoginForm() {
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [barberEmail, setBarberEmail] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [sent, setSent] = useState(false);
 
-  // Fetch barber email from server
+  // Fetch barber email from server (for pre-filling, but not required)
   useEffect(() => {
     fetch("/api/barber/email")
       .then((res) => res.json())
       .then((data) => {
         if (data.barberEmail) {
           setBarberEmail(data.barberEmail.trim().toLowerCase());
-          setEmail(data.barberEmail.trim().toLowerCase());
         }
       })
       .catch((err) => {
@@ -43,15 +42,18 @@ export function BarberLoginForm() {
     }
 
     try {
-      const res = await signIn("email", {
+      const res = await signIn("credentials", {
         email: normalizedEmail,
+        password,
+        redirect: false,
         callbackUrl: "/barber",
       });
 
       if (res?.error) {
-        setError("Failed to send email. Please try again.");
-      } else {
-        setSent(true);
+        setError("Invalid email or password");
+      } else if (res?.ok) {
+        // Redirect manually on success
+        window.location.href = "/barber";
       }
     } catch (err: any) {
       console.error("[BarberLoginForm] Error:", err);
@@ -59,22 +61,6 @@ export function BarberLoginForm() {
     } finally {
       setLoading(false);
     }
-  }
-
-  if (sent) {
-    return (
-      <div className="space-y-4 text-center">
-        <div className="rounded bg-emerald-50 border border-emerald-200 px-4 py-3 text-sm text-emerald-700">
-          ✓ Magic link sent! Check your email.
-        </div>
-        <p className="text-sm text-zinc-600">
-          We've sent a sign-in link to <strong>{email}</strong>
-        </p>
-        <p className="text-sm text-zinc-500">
-          Click the link in the email to access the barber dashboard.
-        </p>
-      </div>
-    );
   }
 
   return (
@@ -95,6 +81,21 @@ export function BarberLoginForm() {
         />
       </div>
 
+      <div>
+        <Label htmlFor="password" className="mb-2 block">
+          Password
+        </Label>
+        <Input
+          id="password"
+          type="password"
+          className="w-full"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          required
+          autoComplete="current-password"
+        />
+      </div>
+
       {error && (
         <div className="rounded bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-600">
           {error}
@@ -106,7 +107,7 @@ export function BarberLoginForm() {
         disabled={loading}
         className="w-full"
       >
-        {loading ? "Sending..." : "Send Magic Link"}
+        {loading ? "Signing in..." : "Sign in"}
       </Button>
     </form>
   );

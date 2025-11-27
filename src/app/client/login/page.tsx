@@ -8,13 +8,13 @@ export default function ClientLoginPage() {
     <AuthCard
       icon={Mail}
       title="Sign in for booking"
-      subtitle="Receive a one-time sign-in link to book your cut"
+      subtitle="Use your email and password to book your cut"
       footer={
         <div className="space-y-2 text-sm text-zinc-600 w-full">
           <p>
-            Prefer password login?{" "}
-            <Link href="/login" className="text-blue-600 hover:text-blue-800 underline">
-              Sign in with password
+            New to LaFade?{" "}
+            <Link href="/signup" className="text-blue-600 hover:text-blue-800 underline">
+              Create an account
             </Link>
           </p>
         </div>

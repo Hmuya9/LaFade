@@ -18,7 +18,7 @@ export function SecuritySection({ hasPassword }: SecuritySectionProps) {
   const modalTitle = hasPassword ? "Change Password" : "Set Password";
   const modalDescription = hasPassword
     ? "Update your password to keep your account secure."
-    : "You currently use email magic links. Set a password to also sign in on /login.";
+    : "Set a password to sign in to your account.";
 
   return (
     <>

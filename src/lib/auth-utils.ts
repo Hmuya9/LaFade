@@ -21,14 +21,12 @@ export function normalizeEmail(email: string): string {
 }
 
 /**
- * Case-insensitive email lookup for SQLite compatibility.
+ * Case-insensitive email lookup for PostgreSQL.
  * 
- * SQLite's default string comparison is case-sensitive, so we:
- * 1. Fetch all users with emails
- * 2. Filter in memory using case-insensitive comparison
- * 
- * This ensures compatibility with SQLite while maintaining correctness.
- * For production with PostgreSQL, consider adding an indexed `emailLower` field.
+ * Uses PostgreSQL's case-insensitive comparison to efficiently find users
+ * by email regardless of casing. Since emails are normalized during signup,
+ * this primarily handles edge cases where emails might have been stored
+ * with different casing.
  * 
  * @param email - Email address (any casing)
  * @returns User with passwordHash, or null if not found
@@ -44,14 +42,9 @@ export async function findUserByEmailInsensitive(
 
   console.log("[auth] findUserByEmailInsensitive: looking for", target);
 
-  // Fetch all users with emails (SQLite case-sensitivity workaround)
-  // In production with many users, consider adding emailLower field with index
-  const users = await prisma.user.findMany({
-    where: {
-      email: {
-        not: null,
-      },
-    },
+  // First try direct lookup (emails should be normalized during signup)
+  let user = await prisma.user.findUnique({
+    where: { email: target },
     select: {
       id: true,
       email: true,
@@ -61,20 +54,29 @@ export async function findUserByEmailInsensitive(
     },
   });
 
-  console.log("[auth] findUserByEmailInsensitive: checked", users.length, "users");
+  // If not found, try case-insensitive lookup using raw SQL for PostgreSQL
+  // This handles edge cases where emails might have been stored with different casing
+  if (!user) {
+    const result = await prisma.$queryRaw<Array<{
+      id: string;
+      email: string;
+      name: string | null;
+      role: string;
+      passwordHash: string | null;
+    }>>`
+      SELECT id, email, name, role, "passwordHash"
+      FROM "User"
+      WHERE LOWER(email) = LOWER(${target})
+      LIMIT 1
+    `;
 
-  // Case-insensitive match
-  const user = users.find(
-    (u) => u.email && normalizeEmail(u.email) === target
-  );
+    if (result && result.length > 0) {
+      user = result[0] as any;
+    }
+  }
 
   if (!user) {
     console.log("[auth] findUserByEmailInsensitive: NO MATCH for", target);
-    const availableEmails = users.map((u) => u.email).filter(Boolean);
-    console.log("[auth] findUserByEmailInsensitive: available emails in DB", availableEmails);
-    console.log("[auth] findUserByEmailInsensitive: normalized available emails", 
-      availableEmails.map(e => normalizeEmail(e || ""))
-    );
     return null;
   }
 

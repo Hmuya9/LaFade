@@ -26,6 +26,7 @@ export async function GET() {
         email: true,
         image: true,
         city: true,
+        role: true,
       },
       orderBy: {
         name: "asc",

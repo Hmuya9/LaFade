@@ -61,7 +61,7 @@ const DISABLED_BARBER_EMAILS = ["hussemuya.hm.hm@gmail.com"];
 const isDisabledBarberEmail = (email?: string | null) =>
   email ? DISABLED_BARBER_EMAILS.includes(email.toLowerCase()) : false;
 
-type BarberOption = { id: string; name: string | null; email: string | null; city?: string | null };
+type BarberOption = { id: string; name: string | null; email: string | null; city?: string | null; role?: string };
 
 const bookingSchema = z.object({
   customerName: z.string().min(2, "Name must be at least 2 characters"),
@@ -119,10 +119,12 @@ export function BookingForm({ defaultBarberId }: BookingFormProps) {
         if (response.ok) {
           const data: BarberOption[] = await response.json();
           setBarbers(data);
-          // Set default barber if available
+          // Set default barber if available (exclude disabled and OWNER role)
           const currentBarber = watch("selectedBarber");
           if (!currentBarber) {
-            const firstSelectable = data.find((barber) => !isDisabledBarberEmail(barber.email));
+            const firstSelectable = data.find((barber) => 
+              !isDisabledBarberEmail(barber.email) && barber.role !== "OWNER"
+            );
             if (firstSelectable) {
               setValue("selectedBarber", firstSelectable.id);
             }
@@ -819,29 +821,36 @@ export function BookingForm({ defaultBarberId }: BookingFormProps) {
                       <div className="space-y-2">
                         {barbers.map((barber) => {
                           const isDisabled = isDisabledBarberEmail(barber.email);
+                          const isOwner = barber.role === "OWNER";
+                          const isDisabledOrOwner = isDisabled || isOwner;
                           return (
                             <button
                               key={barber.id}
                               type="button"
-                              onClick={() => !isDisabled && setValue("selectedBarber", barber.id)}
-                              disabled={isDisabled}
+                              onClick={() => !isDisabledOrOwner && setValue("selectedBarber", barber.id)}
+                              disabled={isDisabledOrOwner}
                               className={`w-full px-4 py-3 rounded-xl border transition-all duration-200 flex items-center gap-2 ${
-                                watch("selectedBarber") === barber.id
+                                watch("selectedBarber") === barber.id && !isDisabledOrOwner
                                   ? "bg-gradient-to-r from-rose-600 to-amber-600 text-white border-transparent shadow-md"
+                                  : isDisabledOrOwner
+                                  ? "bg-slate-100 text-slate-400 border-slate-200 opacity-60"
                                   : "bg-white text-slate-700 border-slate-200 hover:border-rose-300 hover:bg-rose-50/50"
-                              } ${isDisabled ? "opacity-60 cursor-not-allowed pointer-events-none" : ""}`}
+                              } ${isDisabledOrOwner ? "cursor-not-allowed pointer-events-none" : ""}`}
                             >
                               <User className="w-4 h-4" />
-                              <span className={isDisabled ? "text-slate-500" : undefined}>
+                              <span className={isDisabledOrOwner ? "text-slate-400" : undefined}>
                                 {barber.name || barber.email || ""}
                               </span>
-                              {barber.city && !isDisabled && (
+                              {barber.city && !isDisabledOrOwner && (
                                 <span className="ml-auto text-xs text-white/80">
                                   {barber.city}
                                 </span>
                               )}
                               {isDisabled && (
-                                <span className="ml-auto text-xs text-slate-500 font-medium">Unavailable</span>
+                                <span className="ml-auto text-xs text-slate-400 font-medium">Unavailable</span>
+                              )}
+                              {isOwner && !isDisabled && (
+                                <span className="ml-auto text-xs text-slate-400 font-medium">Admin</span>
                               )}
                             </button>
                           );

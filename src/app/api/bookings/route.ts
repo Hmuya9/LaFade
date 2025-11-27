@@ -5,7 +5,7 @@ import { z } from "zod";
 import crypto from "crypto";
 import { buildICS } from "@/lib/calendar";
 import { sendBookingEmail } from "@/lib/notify";
-import { sendBookingEmailsSafe } from "@/lib/email";
+import { sendBookingEmailsSafe, type EmailResult } from "@/lib/email";
 import { pusherServer } from "@/lib/pusher";
 import { auth } from "@/lib/auth";
 
@@ -30,6 +30,7 @@ export const runtime = "nodejs";
  * Email sending:
  * - Fire-and-forget, never blocks booking creation
  * - sendBookingEmailsSafe() is wrapped in .catch() to prevent errors
+ * - sendBookingEmail() with .ics invite is awaited for result reporting
  */
 
 const createBookingSchema = z.object({
@@ -44,8 +45,6 @@ const createBookingSchema = z.object({
   notes: z.string().optional(),
   rescheduleOf: z.string().optional(), // Appointment ID being rescheduled
 });
-
-type EmailResult = { emailed: boolean; reason?: string };
 
 // Helper to check if error is Prisma unique constraint violation
 function isPrismaUniqueError(e: unknown): e is { code: 'P2002' } {
@@ -461,12 +460,18 @@ export async function POST(req: NextRequest) {
       });
       
       // Trigger email notifications (fire-and-forget, never blocks booking)
-      try {
-        void sendBookingEmailsSafe(appointment.id);
-        console.log('[booking][email] Triggered email notifications', { appointmentId: appointment.id });
-      } catch (err) {
-        console.error('[booking][email] Unexpected error triggering emails', err);
-      }
+      // This sends basic emails to client, barber, and owner in the background
+      sendBookingEmailsSafe(appointment.id)
+        .then((result) => {
+          if (result.emailed) {
+            console.log('[booking][email] Background emails sent successfully', { appointmentId: appointment.id });
+          } else {
+            console.warn('[booking][email] Background emails failed', { appointmentId: appointment.id, reason: result.reason });
+          }
+        })
+        .catch((err) => {
+          console.error('[booking][email] Unexpected error in background email send', { appointmentId: appointment.id, error: err });
+        });
       
       // Verify appointment was actually created
       if (!appointment || !appointment.id) {
@@ -563,8 +568,9 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    // Send email with calendar invite (legacy function - keeps existing behavior)
-    let emailResult: EmailResult = { emailed: false, reason: 'no-resend' };
+    // Send email with calendar invite (.ics attachment)
+    // This is awaited so we can report status to frontend and provide ICS fallback if needed
+    let emailResult: EmailResult = { emailed: false, reason: 'email-not-attempted' };
     try {
       // Transform appointment to match expected interface with non-null fields
       const appointmentForEmail = {
@@ -579,8 +585,17 @@ export async function POST(req: NextRequest) {
         },
       };
       emailResult = await sendBookingEmail(appointmentForEmail, 'created', icsContent);
+      
+      if (emailResult.emailed) {
+        console.log('[booking][email] Calendar invite email sent successfully', { appointmentId: appointment.id });
+      } else {
+        console.warn('[booking][email] Calendar invite email failed', { appointmentId: appointment.id, reason: emailResult.reason });
+      }
     } catch (emailError) {
-      console.error('Email notification failed:', emailError);
+      // This catch should rarely trigger since sendBookingEmail doesn't throw
+      const errorMessage = emailError instanceof Error ? emailError.message : String(emailError);
+      console.error('[booking][email] Unexpected error sending calendar invite email:', errorMessage);
+      emailResult = { emailed: false, reason: `Unexpected error: ${errorMessage}` };
       // Continue anyway - don't fail the booking
     }
 

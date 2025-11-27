@@ -44,7 +44,7 @@ export async function forgotPasswordAction(
     select: { id: true, email: true, passwordHash: true },
   });
 
-  // If no user or no passwordHash (magic-link-only account), return generic success
+  // If no user or no passwordHash, return generic success (for security)
   if (!user || !user.passwordHash) {
     return { status: "success", message: genericMessage };
   }

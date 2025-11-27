@@ -8,9 +8,9 @@ import { Button } from "@/components/ui/button";
 
 export function ClientLoginForm() {
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [sent, setSent] = useState(false);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -18,15 +18,18 @@ export function ClientLoginForm() {
     setLoading(true);
 
     try {
-      const res = await signIn("email", {
+      const res = await signIn("credentials", {
         email: email.trim().toLowerCase(),
+        password,
+        redirect: false,
         callbackUrl: "/booking",
       });
 
       if (res?.error) {
-        setError("Failed to send email. Please try again.");
-      } else {
-        setSent(true);
+        setError("Invalid email or password");
+      } else if (res?.ok) {
+        // Redirect manually on success
+        window.location.href = "/booking";
       }
     } catch (err: any) {
       console.error("[ClientLoginForm] Error:", err);
@@ -34,22 +37,6 @@ export function ClientLoginForm() {
     } finally {
       setLoading(false);
     }
-  }
-
-  if (sent) {
-    return (
-      <div className="space-y-4 text-center">
-        <div className="rounded bg-emerald-50 border border-emerald-200 px-4 py-3 text-sm text-emerald-700">
-          ✓ Magic link sent! Check your email.
-        </div>
-        <p className="text-sm text-zinc-600">
-          We've sent a sign-in link to <strong>{email}</strong>
-        </p>
-        <p className="text-sm text-zinc-500">
-          Click the link in the email to sign in and book your cut.
-        </p>
-      </div>
-    );
   }
 
   return (
@@ -70,6 +57,21 @@ export function ClientLoginForm() {
         />
       </div>
 
+      <div>
+        <Label htmlFor="password" className="mb-2 block">
+          Password
+        </Label>
+        <Input
+          id="password"
+          type="password"
+          className="w-full"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          required
+          autoComplete="current-password"
+        />
+      </div>
+
       {error && (
         <div className="rounded bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-600">
           {error}
@@ -81,7 +83,7 @@ export function ClientLoginForm() {
         disabled={loading}
         className="w-full"
       >
-        {loading ? "Sending..." : "Send Magic Link"}
+        {loading ? "Signing in..." : "Sign in"}
       </Button>
     </form>
   );

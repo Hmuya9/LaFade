@@ -1,8 +1,12 @@
 import { Resend } from 'resend'
 import { env, getBaseUrl, getNotifyFromEmail } from '@/lib/env'
+import { getEmailEnvStatus, type EmailResult } from '@/lib/email'
 
-// Resend client (RESEND_API_KEY is required by env schema)
-const resend = new Resend(env.RESEND_API_KEY)
+// Initialize Resend client only if env is valid
+const emailEnv = getEmailEnvStatus()
+const resend = emailEnv.ok && emailEnv.resendApiKey 
+  ? new Resend(emailEnv.resendApiKey) 
+  : null
 
 interface AppointmentWithIncludes {
   id: string
@@ -22,10 +26,27 @@ interface AppointmentWithIncludes {
   address?: string | null
 }
 
-export async function sendBookingEmail(appointment: AppointmentWithIncludes, type: 'created' | 'cancelled' = 'created', icsContent?: string): Promise<{ emailed: boolean; reason?: string }> {
+export async function sendBookingEmail(appointment: AppointmentWithIncludes, type: 'created' | 'cancelled' = 'created', icsContent?: string): Promise<EmailResult> {
+  // Check env status first
+  const envStatus = getEmailEnvStatus()
+  if (!envStatus.ok) {
+    console.warn('[notify] Email env check failed:', envStatus.reason);
+    return { emailed: false, reason: envStatus.reason };
+  }
+
+  if (!resend) {
+    console.warn('[notify] Resend client not initialized');
+    return { emailed: false, reason: 'Resend client not initialized' };
+  }
+
   const appUrl = env.appUrl || "http://localhost:9999"
-  const notifyTo = process.env.NOTIFY_TO || "bookings@lefade.com"
-  const notifyFrom = getNotifyFromEmail()
+  const notifyTo = envStatus.notifyTo || "bookings@lefade.com"
+  const notifyFrom = envStatus.notifyFrom || getNotifyFromEmail()
+  
+  if (!notifyFrom) {
+    console.warn('[notify] From address missing');
+    return { emailed: false, reason: 'From address missing' };
+  }
   
   const date = new Date(appointment.startAt).toLocaleDateString('en-US', {
     weekday: 'long',
@@ -198,18 +219,36 @@ export async function sendBookingEmail(appointment: AppointmentWithIncludes, typ
       `
     })
 
-    console.log('Booking emails sent successfully')
+    console.log('[notify] Booking emails sent successfully')
     return { emailed: true }
   } catch (error) {
-    console.error('Failed to send booking emails:', error)
-    return { emailed: false }
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    console.error('[notify] Failed to send booking emails:', errorMessage)
+    return { emailed: false, reason: `Resend API error: ${errorMessage}` }
   }
 }
 
-export async function sendPasswordResetEmail(to: string, token: string): Promise<{ emailed: boolean; reason?: string }> {
+export async function sendPasswordResetEmail(to: string, token: string): Promise<EmailResult> {
+  // Check env status first
+  const envStatus = getEmailEnvStatus()
+  if (!envStatus.ok) {
+    console.warn('[notify] Email env check failed for password reset:', envStatus.reason);
+    return { emailed: false, reason: envStatus.reason };
+  }
+
+  if (!resend) {
+    console.warn('[notify] Resend client not initialized for password reset');
+    return { emailed: false, reason: 'Resend client not initialized' };
+  }
+
   const baseUrl = getBaseUrl()
   const resetUrl = `${baseUrl}/reset-password?token=${encodeURIComponent(token)}`
-  const notifyFrom = getNotifyFromEmail()
+  const notifyFrom = envStatus.notifyFrom || getNotifyFromEmail()
+
+  if (!notifyFrom) {
+    console.warn('[notify] From address missing for password reset');
+    return { emailed: false, reason: 'From address missing' };
+  }
 
   try {
     await resend.emails.send({
@@ -235,10 +274,12 @@ export async function sendPasswordResetEmail(to: string, token: string): Promise
       text: `Reset your LaFade password:\n\n${resetUrl}\n\nThis link expires in 60 minutes.`,
     })
 
-    console.log('Password reset email sent successfully')
+    console.log('[notify] Password reset email sent successfully')
     return { emailed: true }
   } catch (error) {
-    console.error('Failed to send password reset email:', error)
-    return { emailed: false, reason: 'send-failed' }
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    console.error('[notify] Failed to send password reset email:', errorMessage)
+    return { emailed: false, reason: `Resend API error: ${errorMessage}` }
   }
 }
+

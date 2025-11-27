@@ -22,10 +22,14 @@ async function getDefaultBarberId(): Promise<string | undefined> {
     }
   }
 
-  // Fallback: first BARBER user if BARBER_EMAIL not set or lookup fails
+  // Fallback: first BARBER user if BARBER_EMAIL not set or lookup fails (exclude OWNER)
   if (!defaultBarberId) {
     const barberByRole = await prisma.user.findFirst({
-      where: { role: "BARBER" },
+      where: { 
+        role: "BARBER",
+        // Explicitly exclude OWNER role users
+        NOT: { role: "OWNER" },
+      },
       select: { id: true },
     });
 

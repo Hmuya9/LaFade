@@ -1,15 +1,10 @@
 // src/lib/auth-options.ts
 import type { NextAuthOptions } from "next-auth";
-import EmailProvider from "next-auth/providers/email";
 import CredentialsProvider from "next-auth/providers/credentials";
 import { PrismaAdapter } from "@next-auth/prisma-adapter";
 import { prisma } from "./db";
-import { env } from "./env";
 // Import centralized auth utilities
 import { verifyCredentials } from "./auth-utils";
-
-// Normalize barber email for case-insensitive comparison
-const BARBER_EMAIL = (env.BARBER_EMAIL ?? "").trim().toLowerCase();
 
 export const authOptions: NextAuthOptions = {
   adapter: PrismaAdapter(prisma),
@@ -17,46 +12,6 @@ export const authOptions: NextAuthOptions = {
     strategy: "jwt", // best with Credentials
   },
   providers: [
-    EmailProvider({
-      server: {
-        host: "smtp.resend.com",
-        port: 465,
-        secure: true,
-        auth: {
-          user: "resend",
-          pass: env.RESEND_API_KEY,
-        },
-      },
-      from: env.EMAIL_FROM || "no-reply@lafade.com",
-      async sendVerificationRequest({ identifier, url }) {
-        // Use Resend API directly instead of Nodemailer
-        const { Resend } = await import("resend");
-        const resend = new Resend(env.RESEND_API_KEY);
-        
-        try {
-          const res = await resend.emails.send({
-            from: env.EMAIL_FROM || "no-reply@lafade.com",
-            to: identifier,
-            subject: "Your LaFade magic sign-in link",
-            html: `
-              <div style="font-family:system-ui,sans-serif">
-                <h2>Sign in to LaFade</h2>
-                <p><a href="${url}">Click here to sign in</a></p>
-                <p style="color:#666">This link expires in 24 hours.</p>
-              </div>
-            `,
-            text: `Sign in: ${url}`,
-          });
-
-          if (res?.error) {
-            throw new Error(res.error.message || "Failed to send Resend email");
-          }
-        } catch (err) {
-          console.error("[auth][resend] sendVerificationRequest error", err);
-          throw err;
-        }
-      },
-    }),
     CredentialsProvider({
       id: "credentials",
       name: "Email & Password",
@@ -144,8 +99,7 @@ export const authOptions: NextAuthOptions = {
     }),
   ],
   pages: {
-    signIn: "/login",          // credentials & magic link UI
-    verifyRequest: "/signin",  // magic link "check your email" page
+    signIn: "/login",          // email + password login
   },
   callbacks: {
     async jwt({ token, user }) {
@@ -211,36 +165,13 @@ export const authOptions: NextAuthOptions = {
       return baseUrl;
     },
     async signIn({ user, account }) {
-      if (!user?.email) return true;
-
       // For Credentials provider, user already exists in DB (they registered)
-      // Skip user creation/update logic
+      // No additional user creation needed
       if (account?.provider === "credentials") {
         return true;
       }
-
-      // For Email provider, handle user creation/role assignment
-      const email = user.email.toLowerCase();
-      const isBarber = email === BARBER_EMAIL;
-      const assignedRole = isBarber ? "BARBER" : "CLIENT";
-
-      console.info(`[auth][signIn] ${user.email} -> ${assignedRole}`, { 
-        email, 
-        barberEmail: BARBER_EMAIL, 
-        isBarber 
-      });
-
-      const existing = await prisma.user.findUnique({ where: { email: user.email } });
-      if (!existing) {
-        await prisma.user.create({
-          data: { email: user.email, role: assignedRole },
-        });
-        console.info(`[auth][signIn] Created new user: ${user.email} as ${assignedRole}`);
-      } else if (isBarber && existing.role !== "BARBER") {
-        await prisma.user.update({ where: { email: user.email }, data: { role: "BARBER" } });
-        console.info(`[auth][signIn] Promoted existing user: ${user.email} to BARBER`);
-      }
-      return true;
+      // Should not reach here since we only have Credentials provider
+      return false;
     },
   },
   debug: process.env.NODE_ENV === "development",

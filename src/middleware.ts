@@ -14,6 +14,7 @@ const publicRoutes = [
   "/barber/login",
   "/forgot-password",
   "/reset-password",
+  "/post-login", // Allow post-login to handle its own redirects
 ];
 
 export async function middleware(req: NextRequest) {
@@ -50,7 +51,8 @@ export async function middleware(req: NextRequest) {
   }
 
   // Logged in: redirect auth routes to post-login
-  if (token && isAuthRoute) {
+  // BUT: Only if we have a valid token AND it's not already going to post-login
+  if (token && isAuthRoute && pathname !== "/post-login") {
     const url = req.nextUrl.clone();
     url.pathname = "/post-login";
     return NextResponse.redirect(url);

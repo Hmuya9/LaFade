@@ -2,27 +2,94 @@ import { Resend } from 'resend';
 import { prisma } from '@/lib/db';
 import { format } from 'date-fns';
 
-const resendApiKey = process.env.RESEND_API_KEY;
-const fromAddress = process.env.EMAIL_FROM;
-const ownerEmail = process.env.NOTIFY_TO || '';
+/**
+ * Email environment status and configuration
+ */
+export type EmailEnvStatus = {
+  ok: boolean;
+  reason?: string;
+  resendApiKey?: string;
+  fromEmail?: string;
+  notifyFrom?: string;
+  notifyTo?: string;
+};
 
-const resend = resendApiKey ? new Resend(resendApiKey) : null;
+/**
+ * Centralized email environment validation.
+ * Never throws - returns ok: false if env is missing.
+ */
+export function getEmailEnvStatus(): EmailEnvStatus {
+  const resendApiKey = process.env.RESEND_API_KEY;
+  const emailFrom = process.env.EMAIL_FROM;
+  const notifyFrom = process.env.NOTIFY_FROM;
+  const notifyTo = process.env.NOTIFY_TO;
+
+  if (!resendApiKey) {
+    console.warn('[email] Email disabled: RESEND_API_KEY missing');
+    return {
+      ok: false,
+      reason: 'RESEND_API_KEY missing',
+    };
+  }
+
+  if (!emailFrom && !notifyFrom) {
+    console.warn('[email] Email disabled: EMAIL_FROM and NOTIFY_FROM both missing');
+    return {
+      ok: false,
+      reason: 'EMAIL_FROM and NOTIFY_FROM both missing',
+      resendApiKey,
+    };
+  }
+
+  // Use NOTIFY_FROM if available, otherwise EMAIL_FROM
+  const effectiveFromEmail = notifyFrom ?? emailFrom;
+
+  return {
+    ok: true,
+    resendApiKey,
+    fromEmail: emailFrom,
+    notifyFrom: notifyFrom ?? emailFrom,
+    notifyTo: notifyTo || undefined,
+  };
+}
+
+// Initialize Resend client only if env is valid
+const emailEnv = getEmailEnvStatus();
+const resend = emailEnv.ok && emailEnv.resendApiKey ? new Resend(emailEnv.resendApiKey) : null;
+const fromAddress = emailEnv.notifyFrom || emailEnv.fromEmail;
+const ownerEmail = emailEnv.notifyTo || '';
+
+/**
+ * Email result type for consistent return values
+ */
+export type EmailResult = {
+  emailed: boolean;
+  reason?: string;
+};
 
 /**
  * Safe email sending wrapper - never throws, always logs.
  * Booking should never fail because of email errors.
+ * Returns EmailResult for consistency.
  */
-export async function sendBookingEmailsSafe(appointmentId: string) {
+export async function sendBookingEmailsSafe(appointmentId: string): Promise<EmailResult> {
   try {
     console.log('[email] sendBookingEmailsSafe start', { appointmentId });
 
+    // Check env status first
+    const envStatus = getEmailEnvStatus();
+    if (!envStatus.ok) {
+      console.warn('[email] Email env check failed:', envStatus.reason);
+      return { emailed: false, reason: envStatus.reason };
+    }
+
     if (!resend) {
-      console.warn('[email] RESEND_API_KEY is missing - skipping email notifications');
-      return;
+      console.warn('[email] Resend client not initialized - skipping email notifications');
+      return { emailed: false, reason: 'Resend client not initialized' };
     }
     if (!fromAddress) {
-      console.warn('[email] EMAIL_FROM is missing - skipping email notifications');
-      return;
+      console.warn('[email] From address missing - skipping email notifications');
+      return { emailed: false, reason: 'From address missing' };
     }
 
     const appt = await prisma.appointment.findUnique({
@@ -35,15 +102,15 @@ export async function sendBookingEmailsSafe(appointmentId: string) {
 
     if (!appt) {
       console.error('[email] Appointment not found', { appointmentId });
-      return;
+      return { emailed: false, reason: 'Appointment not found' };
     }
     if (!appt.client) {
       console.error('[email] Appointment.client not loaded', { appointmentId });
-      return;
+      return { emailed: false, reason: 'Appointment.client not loaded' };
     }
     if (!appt.barber) {
       console.error('[email] Appointment.barber not loaded', { appointmentId });
-      return;
+      return { emailed: false, reason: 'Appointment.barber not loaded' };
     }
 
     const when = format(appt.startAt, 'EEE, MMM d • h:mm a');
@@ -125,11 +192,28 @@ export async function sendBookingEmailsSafe(appointmentId: string) {
     }
 
     const results = await Promise.allSettled(promises);
-    console.log('[email] send results', JSON.stringify(results, null, 2));
-    console.log('[email] sendBookingEmailsSafe finished', { appointmentId });
+    
+    // Check if any emails failed
+    const failed = results.filter((r) => r.status === 'rejected');
+    if (failed.length > 0) {
+      console.error('[email] Some emails failed to send', { 
+        appointmentId, 
+        failedCount: failed.length,
+        totalCount: results.length 
+      });
+      return { 
+        emailed: false, 
+        reason: `${failed.length} of ${results.length} emails failed` 
+      };
+    }
+
+    console.log('[email] All emails sent successfully', { appointmentId, count: results.length });
+    return { emailed: true };
   } catch (err) {
     // IMPORTANT: swallow error - do not throw
-    console.error('[email] error while sending booking emails', { appointmentId, error: err });
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    console.error('[email] error while sending booking emails', { appointmentId, error: errorMessage });
+    return { emailed: false, reason: `Exception: ${errorMessage}` };
   }
 }
 
@@ -240,9 +324,10 @@ export async function sendBookingEmailsDebug(appointmentId: string) {
 
 /**
  * Non-blocking version for production (keeps booking fast).
+ * Returns immediately, logs errors in background.
  */
-export function sendBookingEmailsFireAndForget(appointmentId: string) {
+export function sendBookingEmailsFireAndForget(appointmentId: string): void {
   sendBookingEmailsSafe(appointmentId).catch((err) => {
-    console.error('[email] background email error', err);
+    console.error('[email] background email error', { appointmentId, error: err });
   });
 }
