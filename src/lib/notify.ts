@@ -48,16 +48,22 @@ export async function sendBookingEmail(appointment: AppointmentWithIncludes, typ
     return { emailed: false, reason: 'From address missing' };
   }
   
-  const date = new Date(appointment.startAt).toLocaleDateString('en-US', {
+  // Note: appointment.startAt is already a Date object (UTC)
+  // Formatting for display should be done in UI, but for email we format here
+  // using UTC methods to avoid timezone conversion issues
+  const appointmentDate = new Date(appointment.startAt);
+  const date = appointmentDate.toLocaleDateString('en-US', {
     weekday: 'long',
     year: 'numeric',
     month: 'long',
-    day: 'numeric'
+    day: 'numeric',
+    timeZone: 'UTC'
   })
-  const time = new Date(appointment.startAt).toLocaleTimeString('en-US', {
+  const time = appointmentDate.toLocaleTimeString('en-US', {
     hour: 'numeric',
     minute: '2-digit',
-    hour12: true
+    hour12: true,
+    timeZone: 'UTC'
   })
   
   const planName = appointment.isFree ? "Free Trial" : 

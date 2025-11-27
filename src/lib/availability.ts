@@ -140,7 +140,7 @@ export async function getAvailableSlotsForDate(
       count: appointments.length,
       appointments: appointments.map(a => ({
         startAt: a.startAt,
-        time: new Date(a.startAt).toLocaleTimeString(),
+        timeUTC: a.startAt.toISOString(),
         status: a.status
       }))
     });

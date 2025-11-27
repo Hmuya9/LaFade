@@ -59,22 +59,23 @@ export async function getNextOpeningsForBarber(
         for (const time of slots) {
           if (openings.length >= limit) break;
 
-          // Parse time (e.g., "10:00 AM") and create DateTime
+          // Parse time (e.g., "10:00 AM") and create DateTime in UTC
           const [timePart, period] = time.split(" ");
           const [hour, minute] = timePart.split(":").map(Number);
           let hour24 = hour;
           if (period === "PM" && hour !== 12) hour24 += 12;
           if (period === "AM" && hour === 12) hour24 = 0;
 
-          // Create dateTime in local time (not UTC)
-          const dateTime = new Date(searchDate);
-          dateTime.setHours(hour24, minute, 0, 0);
+          // Parse date string and create UTC date
+          const [year, month, day] = dateStr.split('-').map(Number);
+          // Create Date in local timezone, which JavaScript stores as UTC internally
+          const dateTime = new Date(year, month - 1, day, hour24, minute, 0, 0);
           
           if (process.env.NODE_ENV === "development" && openings.length === 0) {
             console.log("[next-openings] First opening:", {
               date: dateStr,
               time,
-              dateTime: dateTime.toLocaleString(),
+              dateTimeISO: dateTime.toISOString(),
             });
           }
 

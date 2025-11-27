@@ -433,15 +433,16 @@ async function handleAppointmentPayment(session: Stripe.Checkout.Session) {
       return
     }
 
-    // Parse appointment time
-    const startAt = new Date(selectedDate)
+    // Parse local date/time and convert to UTC for storage
+    const [year, month, day] = selectedDate.split('-').map(Number)
     const [time, period] = selectedTime.split(" ")
     const [hh, mm] = time.split(":")
     let hour = parseInt(hh, 10)
     if (period === "PM" && hour !== 12) hour += 12
     if (period === "AM" && hour === 12) hour = 0
-    startAt.setHours(hour, parseInt(mm ?? "0", 10), 0, 0)
-    const startAtUTC = new Date(startAt.toISOString())
+    // Create Date object in local timezone, which JavaScript stores as UTC internally
+    const startAtLocal = new Date(year, month - 1, day, hour, parseInt(mm ?? "0", 10), 0, 0)
+    const startAtUTC = startAtLocal
     const endAtUTC = new Date(startAtUTC.getTime() + 30 * 60 * 1000) // +30 minutes
 
     // Create appointment

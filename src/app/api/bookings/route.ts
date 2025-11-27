@@ -198,15 +198,20 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Parse to UTC
-    const startAt = new Date(data.selectedDate);
+    // Parse local date/time and convert to UTC for storage
+    // User provides date (YYYY-MM-DD) and time (e.g., "10:00 AM") in local timezone
+    const [year, month, day] = data.selectedDate.split('-').map(Number);
     const [time, period] = data.selectedTime.split(" "); // "10:00", "AM"
     const [hh, mm] = time.split(":");
     let hour = parseInt(hh, 10); 
     if (period === "PM" && hour !== 12) hour += 12;
     if (period === "AM" && hour === 12) hour = 0;
-    startAt.setHours(hour, parseInt(mm ?? "0", 10), 0, 0);
-    const startAtUTC = new Date(startAt.toISOString());
+    
+    // Create Date object in local timezone, then convert to UTC
+    // Date constructor interprets as local time when given year/month/day/hour
+    const startAtLocal = new Date(year, month - 1, day, hour, parseInt(mm ?? "0", 10), 0, 0);
+    // Date object stores UTC internally - use directly, no conversion needed
+    const startAtUTC = startAtLocal;
     const endAtUTC = new Date(startAtUTC.getTime() + 30 * 60 * 1000); // +30 minutes
 
     // Idempotency handling
