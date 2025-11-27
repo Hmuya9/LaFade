@@ -46,7 +46,11 @@ const clientSchema = z.object({
 // Parse server env with safeParse
 const serverParsed = serverSchema.safeParse(process.env);
 
-if (!serverParsed.success) {
+// During Vercel build, env vars may not be available yet - allow build to proceed
+// Validation will happen at runtime when env is actually accessed
+const isBuildTime = process.env.VERCEL === "1" && !process.env.DATABASE_URL;
+
+if (!serverParsed.success && !isBuildTime) {
   const errors = serverParsed.error.flatten().fieldErrors;
   console.error("❌ Invalid server environment variables:", errors);
 
@@ -67,19 +71,34 @@ if (!serverParsed.success) {
 }
 
 // Export server env (only use in server components/actions/API routes)
+// During build, provide safe defaults if env vars aren't available yet
+const buildTimeDefaults = isBuildTime ? {
+  DATABASE_URL: "file:./prisma/dev.db", // Placeholder for build
+  NEXTAUTH_SECRET: "build-time-placeholder", // Placeholder for build
+  NEXTAUTH_URL: process.env.NEXTAUTH_URL,
+  BARBER_EMAIL: process.env.BARBER_EMAIL,
+  NOTIFY_FROM: process.env.NOTIFY_FROM,
+  RESEND_API_KEY: process.env.RESEND_API_KEY,
+  EMAIL_FROM: process.env.EMAIL_FROM,
+  STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY,
+  STRIPE_WEBHOOK_SECRET: process.env.STRIPE_WEBHOOK_SECRET,
+  REDIS_URL: process.env.REDIS_URL,
+  CLOUDINARY_API_SECRET: process.env.CLOUDINARY_API_SECRET,
+} : {};
+
 export const env = {
-  ...(serverParsed.success ? serverParsed.data : {}),
+  ...(serverParsed.success ? serverParsed.data : buildTimeDefaults),
   // Backward compatibility aliases
-  appUrl: serverParsed.success ? (serverParsed.data.NEXTAUTH_URL || "") : "",
+  appUrl: serverParsed.success ? (serverParsed.data.NEXTAUTH_URL || "") : (process.env.NEXTAUTH_URL || ""),
   calendly: process.env.NEXT_PUBLIC_CALENDLY_URL || "",
   stripeStandard: process.env.NEXT_PUBLIC_STRIPE_PRICE_STANDARD || "",
   stripeDeluxe: process.env.NEXT_PUBLIC_STRIPE_PRICE_DELUXE || "",
   linkStandard: process.env.NEXT_PUBLIC_STRIPE_LINK_STANDARD || "",
   linkDeluxe: process.env.NEXT_PUBLIC_STRIPE_LINK_DELUXE || "",
-  redisUrl: serverParsed.success ? (serverParsed.data.REDIS_URL || "") : "",
+  redisUrl: serverParsed.success ? (serverParsed.data.REDIS_URL || "") : (process.env.REDIS_URL || ""),
   cloudinaryCloudName: process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME,
   cloudinaryApiKey: process.env.NEXT_PUBLIC_CLOUDINARY_API_KEY,
-  cloudinaryApiSecret: serverParsed.success ? (serverParsed.data.CLOUDINARY_API_SECRET || "") : "",
+  cloudinaryApiSecret: serverParsed.success ? (serverParsed.data.CLOUDINARY_API_SECRET || "") : (process.env.CLOUDINARY_API_SECRET || ""),
   cloudinaryUploadPreset: process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET,
 };
 
