@@ -7,6 +7,7 @@ import { AppointmentCard } from "@/components/ui/appointment-card";
 import type { AppointmentCardData } from "@/components/ui/appointment-card";
 import { Calendar, Clock, User, MapPin } from "lucide-react";
 import { format } from "date-fns";
+import { TimeRangeClient } from "@/components/TimeRangeClient";
 
 type BarberAppointment = {
   id: string;
@@ -179,7 +180,10 @@ export function MyScheduleSection() {
                       <div className="text-sm text-slate-600 space-y-1">
                         <div className="flex items-center gap-2">
                           <Clock className="w-3.5 h-3.5" />
-                          {format(new Date(apt.startAt), "h:mm a")} - {format(new Date(apt.endAt), "h:mm a")}
+                          <TimeRangeClient 
+                            startAt={apt.startAt} 
+                            endAt={apt.endAt}
+                          />
                         </div>
                         {apt.type === "HOME" && apt.address && (
                           <div className="flex items-center gap-2">
@@ -273,11 +277,19 @@ export function MyScheduleSection() {
                       <div className="text-sm text-slate-600 space-y-1">
                         <div className="flex items-center gap-2">
                           <Calendar className="w-3.5 h-3.5" />
-                          {format(new Date(apt.startAt), "EEEE, MMMM d")}
+                          <TimeRangeClient 
+                            startAt={apt.startAt} 
+                            endAt={apt.endAt}
+                            showDate={true}
+                            dateFormat="EEEE, MMMM d"
+                          />
                         </div>
                         <div className="flex items-center gap-2">
                           <Clock className="w-3.5 h-3.5" />
-                          {format(new Date(apt.startAt), "h:mm a")} - {format(new Date(apt.endAt), "h:mm a")}
+                          <TimeRangeClient 
+                            startAt={apt.startAt} 
+                            endAt={apt.endAt}
+                          />
                         </div>
                         {apt.type === "HOME" && apt.address && (
                           <div className="flex items-center gap-2">

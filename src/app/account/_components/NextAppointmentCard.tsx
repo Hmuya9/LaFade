@@ -6,6 +6,7 @@ import { Calendar, Clock, User, MapPin, Scissors } from "lucide-react";
 import { format } from "date-fns";
 import Link from "next/link";
 import type { AppointmentCardData } from "@/components/ui/appointment-card";
+import { TimeRangeClient } from "@/components/TimeRangeClient";
 
 interface NextAppointmentCardProps {
   nextAppointment: AppointmentCardData;
@@ -15,9 +16,6 @@ export function NextAppointmentCard({ nextAppointment }: NextAppointmentCardProp
   if (!nextAppointment) {
     return null;
   }
-
-  const startDate = new Date(nextAppointment.startAt);
-  const endDate = new Date(nextAppointment.endAt);
 
   return (
     <Card className="rounded-2xl shadow-sm border-rose-200/60 bg-gradient-to-br from-rose-50/40 to-amber-50/30">
@@ -53,14 +51,20 @@ export function NextAppointmentCard({ nextAppointment }: NextAppointmentCardProp
 
               <div className="flex items-center gap-1.5 mb-1 text-sm text-slate-600">
                 <Calendar className="w-4 h-4 text-rose-500" />
-                <span>{format(startDate, "EEEE, MMMM d")}</span>
+                <TimeRangeClient 
+                  startAt={nextAppointment.startAt} 
+                  showDate={true}
+                  dateFormat="EEEE, MMMM d"
+                  timeFormat=""
+                />
               </div>
 
               <div className="flex items-center gap-1.5 text-sm text-slate-600">
                 <Clock className="w-4 h-4 text-rose-500" />
-                <span>
-                  {format(startDate, "h:mm a")} – {format(endDate, "h:mm a")}
-                </span>
+                <TimeRangeClient 
+                  startAt={nextAppointment.startAt} 
+                  endAt={nextAppointment.endAt}
+                />
               </div>
 
               {nextAppointment.type === "HOME" && nextAppointment.address && (

@@ -5,6 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Calendar, Clock } from "lucide-react";
 import { format, startOfWeek, addDays, isSameDay, parse, setHours, setMinutes } from "date-fns";
 import { cn } from "@/lib/utils";
+import { TimeRangeClient } from "@/components/TimeRangeClient";
 
 type WeeklyScheduleCalendarProps = {
   availabilities: {
@@ -172,8 +173,6 @@ export function WeeklyScheduleCalendar({ availabilities, appointments }: WeeklyS
                     <div className="text-xs text-slate-400 italic">No bookings</div>
                   ) : (
                     dayAppointments.map((apt) => {
-                      const aptStart = typeof apt.startAt === "string" ? new Date(apt.startAt) : apt.startAt;
-                      const aptEnd = typeof apt.endAt === "string" ? new Date(apt.endAt) : apt.endAt;
                       const clientInitials = apt.clientName
                         ? apt.clientName
                             .split(" ")
@@ -190,9 +189,11 @@ export function WeeklyScheduleCalendar({ availabilities, appointments }: WeeklyS
                         >
                           <div className="flex items-center gap-1.5">
                             <Clock className="w-3 h-3" />
-                            <span>
-                              {format(aptStart, "h:mm")} – {format(aptEnd, "h:mm a")}
-                            </span>
+                            <TimeRangeClient 
+                              startAt={apt.startAt} 
+                              endAt={apt.endAt}
+                              timeFormat="h:mm a"
+                            />
                           </div>
                           <div className="mt-1 flex items-center gap-1">
                             <span className="text-[10px] opacity-90">{clientInitials}</span>

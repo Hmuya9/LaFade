@@ -359,11 +359,27 @@ export function BookingForm({ defaultBarberId }: BookingFormProps) {
           headers['idempotency-key'] = idempotencyKey;
         }
 
+        // Convert selectedDate + selectedTime to UTC ISO string on client
+        // This ensures the time is interpreted in the user's browser timezone
+        const [year, month, day] = data.selectedDate.split('-').map(Number);
+        const [timePart, period] = data.selectedTime.split(" ");
+        const [hh, mm] = timePart.split(":");
+        let hour24 = parseInt(hh, 10);
+        if (period === "PM" && hour24 !== 12) hour24 += 12;
+        if (period === "AM" && hour24 === 12) hour24 = 0;
+        
+        // Create Date in user's local timezone, then convert to UTC ISO string
+        const localDateTime = new Date(year, month - 1, day, hour24, parseInt(mm ?? "0", 10), 0, 0);
+        const startAtUTC = localDateTime.toISOString();
+        const endAtUTC = new Date(localDateTime.getTime() + 30 * 60 * 1000).toISOString();
+
         const res = await fetch("/api/bookings", {
           method: "POST",
           headers,
           body: JSON.stringify({
             ...data,
+            startAtUTC, // Send UTC ISO strings - server will use these
+            endAtUTC,
             // Include rescheduleOf if we're rescheduling
             ...(rescheduleId ? { rescheduleOf: rescheduleId } : {}),
           }),

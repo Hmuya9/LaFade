@@ -1,9 +1,12 @@
+"use client";
+
 import * as React from "react";
 import { Calendar, Clock, User, MapPin, X, CalendarDays, MoreVertical } from "lucide-react";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { StatusBadge, type AppointmentStatus } from "./status-badge";
 import { Button } from "./button";
+import { TimeRangeClient } from "@/components/TimeRangeClient";
 
 export interface AppointmentCardData {
   id: string;
@@ -43,7 +46,6 @@ export function AppointmentCard({
   onReschedule
 }: AppointmentCardProps) {
   const startDate = new Date(appointment.startAt);
-  const endDate = new Date(appointment.endAt);
   
   // Show actions for upcoming appointments that are still active
   // Only show for BOOKED or CONFIRMED status (not CANCELED, COMPLETED, NO_SHOW)
@@ -62,10 +64,8 @@ export function AppointmentCard({
     });
   }
 
-  // Format: "Wed • Nov 27 • 3:00 PM"
+  // Format: "Wed • Nov 27" (date only, time handled by TimeRangeClient)
   const dateFormatted = format(startDate, "EEE • MMM d");
-  const timeFormatted = format(startDate, "h:mm a");
-  const endTimeFormatted = format(endDate, "h:mm a");
 
   // Get barber initials for fallback
   const getInitials = (name: string) => {
@@ -137,9 +137,10 @@ export function AppointmentCard({
           {/* Time */}
           <div className="flex items-center gap-1.5 mb-2 text-sm text-slate-600">
             <Clock className="w-4 h-4 text-slate-400" />
-            <span>
-              {timeFormatted} – {endTimeFormatted}
-            </span>
+            <TimeRangeClient 
+              startAt={appointment.startAt} 
+              endAt={appointment.endAt}
+            />
           </div>
 
           {/* Location (for HOME appointments) */}

@@ -44,6 +44,8 @@ const createBookingSchema = z.object({
   location: z.string().optional(),    // address for deluxe (ignored for trial)
   notes: z.string().optional(),
   rescheduleOf: z.string().optional(), // Appointment ID being rescheduled
+  startAtUTC: z.string().optional(),  // UTC ISO string from client (preferred)
+  endAtUTC: z.string().optional(),    // UTC ISO string from client (preferred)
 });
 
 // Helper to check if error is Prisma unique constraint violation
@@ -198,21 +200,29 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Parse local date/time and convert to UTC for storage
-    // User provides date (YYYY-MM-DD) and time (e.g., "10:00 AM") in local timezone
-    const [year, month, day] = data.selectedDate.split('-').map(Number);
-    const [time, period] = data.selectedTime.split(" "); // "10:00", "AM"
-    const [hh, mm] = time.split(":");
-    let hour = parseInt(hh, 10); 
-    if (period === "PM" && hour !== 12) hour += 12;
-    if (period === "AM" && hour === 12) hour = 0;
+    // Parse date/time - prefer UTC ISO strings from client, otherwise parse on server
+    let startAtUTC: Date;
+    let endAtUTC: Date;
     
-    // Create Date object in local timezone, then convert to UTC
-    // Date constructor interprets as local time when given year/month/day/hour
-    const startAtLocal = new Date(year, month - 1, day, hour, parseInt(mm ?? "0", 10), 0, 0);
-    // Date object stores UTC internally - use directly, no conversion needed
-    const startAtUTC = startAtLocal;
-    const endAtUTC = new Date(startAtUTC.getTime() + 30 * 60 * 1000); // +30 minutes
+    if (data.startAtUTC && data.endAtUTC) {
+      // Client sent UTC ISO strings - use them directly
+      startAtUTC = new Date(data.startAtUTC);
+      endAtUTC = new Date(data.endAtUTC);
+    } else {
+      // Fallback: Parse on server (uses server timezone - not ideal)
+      // User provides date (YYYY-MM-DD) and time (e.g., "10:00 AM") in local timezone
+      const [year, month, day] = data.selectedDate.split('-').map(Number);
+      const [time, period] = data.selectedTime.split(" "); // "10:00", "AM"
+      const [hh, mm] = time.split(":");
+      let hour = parseInt(hh, 10); 
+      if (period === "PM" && hour !== 12) hour += 12;
+      if (period === "AM" && hour === 12) hour = 0;
+      
+      // Create Date object in server's local timezone
+      const startAtLocal = new Date(year, month - 1, day, hour, parseInt(mm ?? "0", 10), 0, 0);
+      startAtUTC = startAtLocal;
+      endAtUTC = new Date(startAtUTC.getTime() + 30 * 60 * 1000); // +30 minutes
+    }
 
     // Idempotency handling
     const providedKey = req.headers.get('idempotency-key');

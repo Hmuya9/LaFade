@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { createPusherClient } from "@/lib/pusher";
 import { Card } from "@/components/ui/card";
-import { format } from "date-fns";
+import { TimeRangeClient } from "@/components/TimeRangeClient";
 
 type BookingEvent = {
   appointmentId: string;
@@ -56,7 +56,6 @@ export function RealtimeBookingsPanel() {
       </div>
       <div className="space-y-2 max-h-64 overflow-y-auto">
         {events.map((e) => {
-          const start = new Date(e.startAt);
           return (
             <div
               key={e.appointmentId}
@@ -67,7 +66,12 @@ export function RealtimeBookingsPanel() {
                   {e.isFree ? "Trial cut" : "Paid booking"}
                 </span>
                 <span className="text-xs text-muted-foreground">
-                  {format(start, "EEE MMM d, p")}
+                  <TimeRangeClient 
+                    startAt={e.startAt} 
+                    showDate={true}
+                    dateFormat="EEE MMM d"
+                    timeFormat="p"
+                  />
                 </span>
               </div>
               <span
