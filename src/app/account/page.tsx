@@ -346,12 +346,23 @@ export default async function AccountPage({ searchParams }: AccountPageProps) {
     })),
   });
 
-  // Status-based filtering (keep it simple & robust)
-  // Treat any non-cancelled active appointment as upcoming, regardless of exact time.
-  // The membership limit logic already prevents abusing old bookings.
-  const upcomingRaw = allAppointments.filter(
-    (a) => a.status === 'BOOKED' || a.status === 'CONFIRMED'
-  );
+  // Status + time-based filtering for upcoming appointments.
+  // We only consider appointments in the future (or later today) as "upcoming".
+  // Any past appointment, even if still BOOKED/CONFIRMED, is treated as past so
+  // the dashboard doesn't show stale "next cut" dates from previous months.
+  const now = new Date();
+  const nowTime = now.getTime();
+  const upcomingRaw = allAppointments.filter((a) => {
+    if (a.status !== "BOOKED" && a.status !== "CONFIRMED") {
+      return false;
+    }
+    if (!a.startAt) return false;
+    // Ensure startAt is a Date object and compare using getTime() for reliable numeric comparison
+    const startAtDate = a.startAt instanceof Date ? a.startAt : new Date(a.startAt);
+    const startAtTime = startAtDate.getTime();
+    // Only include if appointment start time is in the future (strictly greater than now)
+    return startAtTime > nowTime;
+  });
   
   // Past: everything else (complete partition - no appointments dropped)
   const upcomingIds = new Set(upcomingRaw.map((a) => a.id));
@@ -597,9 +608,15 @@ export default async function AccountPage({ searchParams }: AccountPageProps) {
     // Handle SECOND_WINDOW stage - check if appointment is already booked
     if (funnel.stage === "SECOND_WINDOW") {
       // Check if there's a future DISCOUNT_SECOND appointment that's booked/confirmed
+      const nowForComparison = new Date().getTime();
+      const appointmentTime = discountSecondAppointment?.startAt 
+        ? (discountSecondAppointment.startAt instanceof Date 
+            ? discountSecondAppointment.startAt 
+            : new Date(discountSecondAppointment.startAt)).getTime()
+        : 0;
       const futureDiscountAppointment = discountSecondAppointment && 
         discountSecondAppointment.startAt &&
-        new Date(discountSecondAppointment.startAt) >= new Date() &&
+        appointmentTime > nowForComparison &&
         (discountSecondAppointment.status === "BOOKED" || discountSecondAppointment.status === "CONFIRMED");
 
       if (futureDiscountAppointment && discountSecondAppointment.startAt) {

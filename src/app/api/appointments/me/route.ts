@@ -62,14 +62,21 @@ export async function GET() {
     });
 
     // Split into upcoming and past
-    // Upcoming = startAt >= now AND status !== 'CANCELED'
-    // Past = startAt < now (including CANCELED so we can see history)
+    // Upcoming = startAt > now AND status !== 'CANCELED'
+    // Past = startAt <= now (including CANCELED so we can see history)
+    const nowTime = now.getTime();
     const upcoming = allAppointments
-      .filter(apt => apt.startAt >= now && apt.status !== "CANCELED")
+      .filter(apt => {
+        const startAtDate = apt.startAt instanceof Date ? apt.startAt : new Date(apt.startAt);
+        return startAtDate.getTime() > nowTime && apt.status !== "CANCELED";
+      })
       .map(formatAppointmentForResponse);
 
     const past = allAppointments
-      .filter(apt => apt.startAt < now)
+      .filter(apt => {
+        const startAtDate = apt.startAt instanceof Date ? apt.startAt : new Date(apt.startAt);
+        return startAtDate.getTime() <= nowTime;
+      })
       .map(formatAppointmentForResponse)
       .reverse(); // Most recent first
 
