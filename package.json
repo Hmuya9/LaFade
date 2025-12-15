@@ -4,11 +4,12 @@
   "private": true,
   "packageManager": "pnpm@10.0.0",
   "scripts": {
-    "dev": "next dev",
-    "build": "prisma generate && next build",
+    "dev": "next dev -p 3000",
+    "build": "npm run check:no-points && prisma generate && next build",
     "postinstall": "prisma generate",
     "start": "next start",
     "lint": "next lint",
+    "check:no-points": "node scripts/check-no-points.js",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -33,7 +34,8 @@
     "gen:local": "prisma generate --schema prisma/schema.local.prisma",
     "db:push:local": "prisma db push --schema prisma/schema.local.prisma",
     "seed:local": "cross-env DATABASE_URL=file:./dev.db tsx prisma/seed.ts",
-    "fix:barber-names": "tsx scripts/fix-barber-names.ts"
+    "fix:barber-names": "tsx scripts/fix-barber-names.ts",
+    "import-free-cuts": "tsx scripts/import-free-cuts.ts"
   },
   "engines": {
     "node": ">=18.18 <21"

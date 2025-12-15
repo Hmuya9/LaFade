@@ -16,7 +16,13 @@ export class ErrorBoundary extends React.Component<
   }
 
   componentDidCatch(error: any, info: any) {
-    console.error("ErrorBoundary caught:", error, info);
+    // Always log errors, but gate detailed logging in production
+    if (process.env.NODE_ENV === "production") {
+      console.error("ErrorBoundary caught:", error?.message || String(error));
+      // TODO: Send to error tracking service (Sentry, LogRocket, etc.)
+    } else {
+      console.error("ErrorBoundary caught:", error, info);
+    }
   }
 
   render() {

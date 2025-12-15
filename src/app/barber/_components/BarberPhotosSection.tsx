@@ -3,7 +3,6 @@
 import { useEffect, useState, useTransition } from "react";
 import { CldUploadButton } from "next-cloudinary";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { X } from "lucide-react";
 
 type BarberPhoto = {
@@ -107,14 +106,9 @@ export function BarberPhotosSection() {
             signatureEndpoint="/api/sign-image"
             options={{ maxFiles: 1, folder: "lafade-barber" }}
             onSuccess={handleUpload}
+            className={`inline-flex items-center justify-center whitespace-nowrap rounded-2xl text-sm font-medium transition-all duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 h-10 px-4 py-2 border border-zinc-200 hover:bg-zinc-50 active:shadow-inner ${isUploading ? "opacity-50 pointer-events-none cursor-not-allowed" : ""}`}
           >
-            <Button
-              type="button"
-              variant="outline"
-              disabled={isUploading}
-            >
-              {isUploading ? "Uploading..." : "Upload photo"}
-            </Button>
+            {isUploading ? "Uploading..." : "Upload photo"}
           </CldUploadButton>
         </div>
       </CardHeader>

@@ -22,10 +22,12 @@ model User {
   passwordHash  String?
   city          String?   // Barber's city / town (optional)
   createdAt     DateTime  @default(now())
+  hasAnsweredFreeCutQuestion Boolean @default(false)
 
   accounts            Account[]
   sessions            Session[]
   subscriptions       Subscription[]
+  membershipSubscriptions MembershipSubscription[]
   clientAppts         Appointment[]        @relation("ClientAppts")
   barberAppts         Appointment[]        @relation("BarberAppts")
   payouts             Payout[]
@@ -33,6 +35,7 @@ model User {
   passwordResetTokens PasswordResetToken[]
   photos              Photo[]
   weeklyAvailability  BarberAvailability[] @relation("BarberAvailability")
+  cashAppPaymentIntents CashAppPaymentIntent[]
 }
 
 enum Role {
@@ -65,11 +68,71 @@ model Subscription {
   plan Plan @relation(fields: [planId], references: [id])
 }
 
+enum MembershipStatus {
+  ACTIVE
+  CANCELED
+  PAST_DUE
+}
+
+model MembershipPlan {
+  id                String   @id @default(cuid())
+  name              String
+  monthlyPriceCents Int
+  monthlyPoints     Int
+  isActive          Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  subscriptions     MembershipSubscription[]
+
+  // TODO: implement membership logic in a future iteration
+}
+
+model MembershipSubscription {
+  id                 String           @id @default(cuid())
+  userId             String
+  planId             String
+  status             MembershipStatus
+  currentPeriodStart DateTime
+  currentPeriodEnd   DateTime
+  pointsBalance      Int?
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+  plan MembershipPlan @relation(fields: [planId], references: [id])
+
+  // TODO: implement membership logic in a future iteration
+}
+
 enum SubStatus {
   TRIAL
   ACTIVE
   PAST_DUE
   CANCELED
+}
+
+enum AppointmentKind {
+  TRIAL_FREE
+  DISCOUNT_SECOND
+  MEMBERSHIP_INCLUDED
+  ONE_OFF
+}
+
+enum AppointmentPaymentMethod {
+  STRIPE
+  CASH_APP
+  OFFLINE_CASH
+  OFFLINE_VENMO
+  OFFLINE_OTHER
+  OTHER
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  REFUNDED
+  WAIVED
 }
 
 model Appointment {
@@ -85,6 +148,17 @@ model Appointment {
   isFree         Boolean    @default(false)
   idempotencyKey String?    @unique
   cancelReason   String?
+
+  // Funnel + payment metadata (Phase 1)
+  kind       AppointmentKind?         @default(ONE_OFF)
+  priceCents Int?
+  paidVia    AppointmentPaymentMethod?
+  paymentStatus PaymentStatus?
+  cashAppIntentId String?            // Reference to CashAppPaymentIntent if paid via Cash App
+
+  // Optional client feedback for QR confirmation flow
+  rating Int?
+  review String?
 
   client User @relation("ClientAppts", fields: [clientId], references: [id])
   barber User @relation("BarberAppts", fields: [barberId], references: [id])
@@ -273,6 +347,22 @@ model Photo {
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+}
+
+model CashAppPaymentIntent {
+  id         String   @id @default(cuid())
+  userId     String
+  amountCents Int
+  kind       String   // e.g. "DISCOUNT_SECOND" or "ONE_OFF"
+  noteCode   String   // short unique code user must include in Cash App note
+  status     String   @default("PENDING") // PENDING | CONFIRMED
+  confirmedAt DateTime?
+  createdAt  DateTime @default(now())
+  expiresAt  DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
 }
 
 // TODO: After adding Photo model, run:

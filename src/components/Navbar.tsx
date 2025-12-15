@@ -6,29 +6,58 @@ import { useSession } from "next-auth/react";
 import { Button } from "@/components/ui/button";
 import { BRAND } from "@/lib/brand";
 import { SignInButton } from "@/components/SignInButton";
-import PointsBadge from "@/components/PointsBadge";
+import { getDashboardRouteForRole } from "@/lib/auth";
+
+type NavItem = {
+  label: string;
+  href?: string;
+  onClick?: () => void;
+};
 
 export function Navbar() {
   const { data: session } = useSession();
   const role = (session?.user as any)?.role as "CLIENT" | "BARBER" | "OWNER" | undefined;
   
-  const isOwner = role === "OWNER";
+  const isClient = role === "CLIENT";
   const isBarber = role === "BARBER" || role === "OWNER";
-  const isAuthenticated = !!session;
+  const isLoggedIn = !!session;
   
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
+  // Build nav items based on role
+  const navItems: NavItem[] = [];
+  
+  if (!isLoggedIn) {
+    // Logged-out users: Plans, Book Now, Sign In, Get Started
+    navItems.push(
+      { label: "Plans", href: "/plans" },
+      { label: "Book Now", href: "/booking" }
+    );
+  } else if (isClient) {
+    // CLIENT: Plans, Book Now, Dashboard
+    const dashboardRoute = getDashboardRouteForRole(role);
+    navItems.push(
+      { label: "Plans", href: "/plans" },
+      { label: "Book Now", href: "/booking" },
+      { label: "Dashboard", href: dashboardRoute }
+    );
+  } else if (isBarber) {
+    // BARBER/OWNER: Dashboard only
+    const dashboardRoute = getDashboardRouteForRole(role);
+    navItems.push(
+      { label: "Dashboard", href: dashboardRoute }
+    );
+  }
+
   return (
-    <nav className="bg-white border-b border-zinc-200 sticky top-0 z-50">
+    <nav className="bg-white/70 backdrop-blur-md border-b border-zinc-200/60 sticky top-0 z-50">
       <div className="max-w-7xl mx-auto px-6">
         <div className="flex justify-between items-center h-16">
           {/* Logo - Role-aware home link */}
           <Link 
             href={
               !session ? "/" : 
-              role === "BARBER" ? "/barber" :
-              role === "OWNER" ? "/admin/appointments" :
-              "/account"
+              getDashboardRouteForRole(role)
             } 
             className="text-2xl font-bold text-zinc-900 hover:text-amber-600 transition-colors"
           >
@@ -37,37 +66,17 @@ export function Navbar() {
 
           {/* Desktop Navigation */}
           <div className="hidden md:flex items-center space-x-8">
-            {isAuthenticated && role === "CLIENT" && (
-              <Link 
-                href="/account" 
+            {navItems.map((item) => (
+              <Link
+                key={item.label}
+                href={item.href || "#"}
                 className="text-zinc-700 hover:text-zinc-900 font-medium transition-colors"
+                onClick={item.onClick}
               >
-                Dashboard
+                {item.label}
               </Link>
-            )}
-            <Link 
-              href="/plans" 
-              className="text-zinc-700 hover:text-zinc-900 font-medium transition-colors"
-            >
-              Plans
-            </Link>
-            {isAuthenticated && (
-              <Link 
-                href="/booking" 
-                className="text-zinc-700 hover:text-zinc-900 font-medium transition-colors"
-              >
-                Book Now
-              </Link>
-            )}
-            {isBarber && (
-              <Link 
-                href="/barber" 
-                className="text-zinc-700 hover:text-zinc-900 font-medium transition-colors"
-              >
-                Barber Dashboard
-              </Link>
-            )}
-            {isOwner && (
+            ))}
+            {isBarber && role === "OWNER" && (
               <Link 
                 href="/admin" 
                 className="text-zinc-700 hover:text-zinc-900 font-medium transition-colors"
@@ -76,10 +85,11 @@ export function Navbar() {
               </Link>
             )}
             <SignInButton />
-            {isAuthenticated && <PointsBadge />}
-            <Button asChild>
-              <Link href="/plans">Get Started</Link>
-            </Button>
+            {!isLoggedIn && (
+              <Button asChild>
+                <Link href="/plans">Get Started</Link>
+              </Button>
+            )}
           </div>
 
           {/* Mobile Menu Button */}
@@ -100,43 +110,22 @@ export function Navbar() {
 
         {/* Mobile Menu */}
         {isMenuOpen && (
-          <div id="mobile-menu" className="md:hidden border-t border-zinc-200 bg-white">
+          <div id="mobile-menu" className="md:hidden border-t border-zinc-200/60 bg-white/70 backdrop-blur-md">
             <div className="py-4 space-y-4">
-              {isAuthenticated && role === "CLIENT" && (
-                <Link 
-                  href="/account" 
+              {navItems.map((item) => (
+                <Link
+                  key={item.label}
+                  href={item.href || "#"}
                   className="block text-zinc-700 hover:text-zinc-900 font-medium transition-colors px-2 py-1"
-                  onClick={() => setIsMenuOpen(false)}
+                  onClick={() => {
+                    setIsMenuOpen(false);
+                    item.onClick?.();
+                  }}
                 >
-                  Dashboard
+                  {item.label}
                 </Link>
-              )}
-              <Link 
-                href="/plans" 
-                className="block text-zinc-700 hover:text-zinc-900 font-medium transition-colors px-2 py-1"
-                onClick={() => setIsMenuOpen(false)}
-              >
-                Plans
-              </Link>
-              {isAuthenticated && (
-                <Link 
-                  href="/booking" 
-                  className="block text-zinc-700 hover:text-zinc-900 font-medium transition-colors px-2 py-1"
-                  onClick={() => setIsMenuOpen(false)}
-                >
-                  Book Now
-                </Link>
-              )}
-              {isBarber && (
-                <Link 
-                  href="/barber" 
-                  className="block text-zinc-700 hover:text-zinc-900 font-medium transition-colors px-2 py-1"
-                  onClick={() => setIsMenuOpen(false)}
-                >
-                  Barber Dashboard
-                </Link>
-              )}
-              {isOwner && (
+              ))}
+              {isBarber && role === "OWNER" && (
                 <Link 
                   href="/admin" 
                   className="block text-zinc-700 hover:text-zinc-900 font-medium transition-colors px-2 py-1"
@@ -146,12 +135,17 @@ export function Navbar() {
                 </Link>
               )}
               <div className="px-2">
-                <Button asChild className="w-full">
-                  <Link href="/plans" onClick={() => setIsMenuOpen(false)}>
-                    Get Started
-                  </Link>
-                </Button>
+                <SignInButton />
               </div>
+              {!isLoggedIn && (
+                <div className="px-2">
+                  <Button asChild className="w-full">
+                    <Link href="/plans" onClick={() => setIsMenuOpen(false)}>
+                      Get Started
+                    </Link>
+                  </Button>
+                </div>
+              )}
             </div>
           </div>
         )}

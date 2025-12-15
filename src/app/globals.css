@@ -4,4 +4,50 @@
 
 html, body {
   height: 100%;
+  overflow-x: hidden;
+  margin: 0;
+  padding: 0;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+img, video, iframe {
+  max-width: 100%;
+  height: auto;
+  display: block;
+}
+
+/* Prevent large images from breaking layout */
+img {
+  object-fit: cover;
+}
+
+/* Constrain any embedded content */
+iframe, embed, object {
+  max-width: 100%;
+  max-height: 600px;
+}
+
+/* High-fidelity luxury animations */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Creative High-Tech: Subtle pulsing glow for active states */
+@keyframes pulseGlow {
+  0%, 100% {
+    box-shadow: 0 0 20px rgba(239, 68, 68, 0.1);
+  }
+  50% {
+    box-shadow: 0 0 30px rgba(239, 68, 68, 0.15);
+  }
 }

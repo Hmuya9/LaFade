@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { debit } from "@/lib/points";
+import { debit, getPointsBalance } from "@/lib/points";
 import { z } from "zod";
 import crypto from "crypto";
 import { buildICS } from "@/lib/calendar";
@@ -8,6 +8,9 @@ import { sendBookingEmail } from "@/lib/notify";
 import { sendBookingEmailsSafe, type EmailResult } from "@/lib/email";
 import { pusherServer } from "@/lib/pusher";
 import { auth } from "@/lib/auth";
+import { PRICING, getPricingByPlanId } from "@/lib/pricing";
+import { isFreeCutAppointment, getClientFunnelForUser } from "@/lib/client-funnel";
+import { getBookingState } from "@/lib/bookingState";
 
 export const runtime = "nodejs";
 
@@ -33,6 +36,12 @@ export const runtime = "nodejs";
  * - sendBookingEmail() with .ics invite is awaited for result reporting
  */
 
+// V1 Launch Safety: Only allow these two real barbers
+const REAL_BARBER_IDS = [
+  "cmihqddi20001vw3oyt77w4uv",
+  "cmj6jzd1j0000vw8ozlyw14o9",
+];
+
 const createBookingSchema = z.object({
   customerName: z.string().min(2),
   customerEmail: z.string().email(),
@@ -46,6 +55,15 @@ const createBookingSchema = z.object({
   rescheduleOf: z.string().optional(), // Appointment ID being rescheduled
   startAtUTC: z.string().optional(),  // UTC ISO string from client (preferred)
   endAtUTC: z.string().optional(),    // UTC ISO string from client (preferred)
+  // Optional metadata used for special flows (e.g. discounted second cut)
+  kind: z.enum(["DISCOUNT_SECOND"]).optional(),
+  // Optional bookingStateType for server-side validation
+  bookingStateType: z.enum(["FIRST_FREE", "SECOND_DISCOUNT", "MEMBERSHIP_INCLUDED", "ONE_OFF"]).optional(),
+  // Optional flag to redeem 150 points for a free cut
+  usePoints: z.boolean().optional(),
+  // Cash App payment
+  paymentMethod: z.enum(["STRIPE", "CASH_APP"]).optional(),
+  cashAppIntentId: z.string().optional(),
 });
 
 // Helper to check if error is Prisma unique constraint violation
@@ -76,7 +94,10 @@ function generateIdempotencyKey(email: string, barberId: string, startAtUTC: Dat
  * - CANCELED/COMPLETED/NO_SHOW don't count as conflicts
  */
 export async function POST(req: NextRequest) {
+  // Only log in development to avoid log noise in production
+  if (process.env.NODE_ENV !== "production") {
   console.log('[booking][start]', { url: req.url, method: req.method });
+  }
 
   try {
     // Resolve current user by email (simple, consistent approach)
@@ -140,7 +161,10 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Only log request body in development (may contain sensitive data)
+    if (process.env.NODE_ENV !== "production") {
     console.log('[booking][body]', body);
+    }
 
     const parsed = createBookingSchema.safeParse(body);
     if (!parsed.success) {
@@ -154,6 +178,8 @@ export async function POST(req: NextRequest) {
     }
     const data = parsed.data;
 
+    // Only log parsed data in development
+    if (process.env.NODE_ENV !== "production") {
     console.log('[booking] request body parsed', {
       plan: data.plan,
       date: data.selectedDate,
@@ -161,6 +187,7 @@ export async function POST(req: NextRequest) {
       barberId: data.selectedBarber,
       rescheduleOf: data.rescheduleOf || null,
     });
+    }
 
     if (client.role !== "CLIENT") {
       console.warn('[booking][validation]', 'client_not_found_or_wrong_role', {
@@ -175,6 +202,28 @@ export async function POST(req: NextRequest) {
 
     const finalClientId = client.id;
 
+    console.log("[bookings] resolved client", {
+      sessionEmail: session?.user?.email,
+      finalClientId,
+    });
+
+    // Update client phone if provided and different from current
+    if (client.role === "CLIENT" && data.customerPhone) {
+      if (!client.phone || client.phone !== data.customerPhone) {
+        await prisma.user.update({
+          where: { id: finalClientId },
+          data: { phone: data.customerPhone },
+        });
+        console.log("[bookings] updated client phone", {
+          clientId: finalClientId,
+          phone: data.customerPhone,
+        });
+      }
+    }
+
+    // Get booking state early (required for guards that check bookingState.type)
+    const bookingState = await getBookingState(finalClientId);
+
     // Find barber by ID (preferred) or name (legacy support)
     let barber = await prisma.user.findUnique({
       where: { id: data.selectedBarber },
@@ -186,8 +235,21 @@ export async function POST(req: NextRequest) {
         where: { 
           name: data.selectedBarber, 
           role: { in: ["BARBER", "OWNER"] },
+          id: { in: REAL_BARBER_IDS },
         },
       });
+    }
+    
+    // V1 Launch Safety: Guard - only allow real barbers
+    if (!barber || !REAL_BARBER_IDS.includes(barber.id)) {
+      console.warn('[booking][validation]', 'barber_not_allowlisted', {
+        selectedBarber: data.selectedBarber,
+        barberId: barber?.id,
+      });
+      return NextResponse.json(
+        { ok: false, message: "Invalid barber selected. Please choose a valid barber." },
+        { status: 400 }
+      );
     }
     
     if (!barber || (barber.role !== "BARBER" && barber.role !== "OWNER")) {
@@ -224,17 +286,39 @@ export async function POST(req: NextRequest) {
       endAtUTC = new Date(startAtUTC.getTime() + 30 * 60 * 1000); // +30 minutes
     }
 
-    // Idempotency handling
-    const providedKey = req.headers.get('idempotency-key');
-    const idempotencyKey = providedKey || generateIdempotencyKey(data.customerEmail, barber.id, startAtUTC);
+    // === GUARD: Idempotency handling (always server-generated for consistency) ===
+    // Always generate idempotency key server-side to ensure consistency
+    // Client-provided keys are ignored to prevent key mismatches
+    const idempotencyKey = generateIdempotencyKey(
+      session.user.email!,
+      barber.id,
+      startAtUTC
+    );
 
-    // Check for existing booking with same idempotency key
+    console.log("[booking][IDEMP_KEY]", {
+      email: session.user?.email,
+      barberId: barber.id,
+      startAt: startAtUTC.toISOString(),
+      idempotencyKey,
+    });
+
+    // Check for existing booking with same idempotency key (only active appointments)
     const existingAppointment = await prisma.appointment.findFirst({
-      where: { idempotencyKey },
+      where: {
+        idempotencyKey,
+        status: {
+          in: ["BOOKED", "CONFIRMED"],
+        },
+      },
       include: {
         client: { select: { name: true, email: true, phone: true } },
         barber: { select: { name: true } },
       },
+    });
+
+    console.log("[booking][idempotent-check]", {
+      foundId: existingAppointment?.id ?? null,
+      foundStatus: existingAppointment?.status ?? null,
     });
 
     if (existingAppointment) {
@@ -356,41 +440,52 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Free Test Cut rules (LAUNCH VERSION):
-    // Client should not be blocked from using Free Test Cut again if they canceled before the appointment time.
-    // Only block if they have a future non-canceled free appointment.
-    if (data.plan === "trial") {
-      const previousTrial = await prisma.appointment.findFirst({
+    // === GUARD: Free Test Cut eligibility ===
+    // We gate free trials based on any non-canceled free cut appointment (past or future).
+    // Uses the same logic as isFreeCutAppointment() to handle both current and legacy appointments.
+    // A client can book another free trial only if *all* free cut appointments are canceled.
+    if (data.plan === "trial" || bookingState.type === "FIRST_FREE") {
+      // Fetch all non-canceled appointments for this client
+      const allAppointments = await prisma.appointment.findMany({
         where: {
           clientId: finalClientId,
-          isFree: true,
           status: {
-            not: "CANCELED" // Only block if they have a non-canceled free appointment
-          },
-          startAt: {
-            gte: new Date() // Only check future appointments
+            not: "CANCELED",
           },
           // Exclude the old appointment if we're rescheduling a free trial
           ...(oldAppointmentId ? { id: { not: oldAppointmentId } } : {}),
         },
-        select: { id: true, status: true, startAt: true },
+        select: {
+          id: true,
+          status: true,
+          startAt: true,
+          kind: true,
+          priceCents: true,
+        },
       });
-      if (previousTrial) {
-        console.error('[booking] Trial blocked - existing non-canceled future trial found', {
+      
+      // Check if any appointment matches the free cut criteria
+      const existingTrial = allAppointments.find((a) => isFreeCutAppointment(a as any));
+      
+      if (existingTrial) {
+        console.log('[bookings][TRIAL_FREE] user already used free cut - blocking new trial', {
           clientId: finalClientId,
-          existingTrialId: previousTrial.id,
-          existingTrialStatus: previousTrial.status,
-          existingTrialStartAt: previousTrial.startAt.toISOString(),
+          clientEmail: client.email,
+          existingTrialId: existingTrial.id,
+          existingTrialStatus: existingTrial.status,
+          existingTrialKind: existingTrial.kind,
+          existingTrialPriceCents: existingTrial.priceCents,
+          existingTrialStartAt: existingTrial.startAt.toISOString(),
         });
         return NextResponse.json(
-          { ok: false, message: "You already have a free test cut scheduled. Cancel it first to book another." },
+          { ok: false, message: "You already have a free test cut. Cancel it first to book another." },
           { status: 400 }
         );
       }
     }
 
     // === DEBUG: Log exact data passed to create (ALWAYS ON for debugging) ===
-    const appointmentData = {
+    const appointmentData: any = {
       clientId: finalClientId,
       barberId: barber.id,
       type: data.plan === "deluxe" ? "HOME" : "SHOP" as const,
@@ -399,9 +494,400 @@ export async function POST(req: NextRequest) {
       status: "BOOKED" as const,
       address: data.plan === "deluxe" ? (data.location || null) : null, // Only deluxe (HOME) has address
       notes: data.notes || null,
-      isFree: data.plan === "trial",
       idempotencyKey,
     };
+
+    // bookingState already fetched above (hoisted to prevent ReferenceError)
+
+    // === GUARD: Validate bookingStateType matches actual state ===
+    if (data.bookingStateType) {
+      const expectedType = bookingState.type;
+      const providedType = data.bookingStateType;
+      
+      // Map bookingStateType to BookingState type
+      const typeMap: Record<string, string> = {
+        "FIRST_FREE": "FIRST_FREE",
+        "SECOND_DISCOUNT": "SECOND_DISCOUNT",
+        "MEMBERSHIP_INCLUDED": "MEMBERSHIP_INCLUDED",
+        "ONE_OFF": "ONE_OFF",
+      };
+      
+      if (typeMap[providedType] !== expectedType) {
+        console.warn('[booking][validation] bookingStateType mismatch', {
+          providedType,
+          expectedType,
+          clientId: finalClientId,
+        });
+        return NextResponse.json(
+          { 
+            ok: false, 
+            message: "Booking state mismatch. Please refresh the page and try again.",
+            code: "BOOKING_STATE_MISMATCH",
+          },
+          { status: 400 }
+        );
+      }
+    }
+
+    // Check for points redemption first (highest priority)
+    if (data.usePoints === true) {
+      // === GUARD: Verify user has enough points (with double-check to prevent race conditions) ===
+      const pointsTotal = await getPointsBalance(finalClientId);
+      if (pointsTotal < 150) {
+        console.warn('[booking][validation] Insufficient points for redemption', {
+          clientId: finalClientId,
+          required: 150,
+          current: pointsTotal,
+        });
+        return NextResponse.json(
+          {
+            ok: false,
+            error: "You don't have enough points for a free cut.",
+            code: "NOT_ENOUGH_POINTS",
+            required: 150,
+            current: pointsTotal,
+          },
+          { status: 400 }
+        );
+      }
+      
+      // === GUARD: Double-check points balance right before creating appointment ===
+      // This helps catch race conditions where points were spent between check and create
+      const pointsTotalAgain = await getPointsBalance(finalClientId);
+      if (pointsTotalAgain < 150) {
+        console.error('[booking][validation] Points balance changed between checks (race condition)', {
+          clientId: finalClientId,
+          required: 150,
+          firstCheck: pointsTotal,
+          secondCheck: pointsTotalAgain,
+        });
+        return NextResponse.json(
+          {
+            ok: false,
+            error: "Points balance changed. Please refresh and try again.",
+            code: "POINTS_BALANCE_CHANGED",
+            required: 150,
+            current: pointsTotalAgain,
+          },
+          { status: 409 }
+        );
+      }
+      // Points redemption: free cut
+      appointmentData.kind = "ONE_OFF";
+      appointmentData.isFree = true;
+      appointmentData.priceCents = 0;
+      appointmentData.paymentStatus = "WAIVED";
+      // Points will be deducted after appointment creation
+    } else if (data.kind === "DISCOUNT_SECOND") {
+      // === GUARD: Validate second cut eligibility at booking time ===
+      // Re-check that user is eligible for second cut (window hasn't expired, no existing booking)
+      const funnel = await getClientFunnelForUser(finalClientId);
+      
+      // Check if user has already booked/completed a second cut
+      if (funnel.hasSecondCutBookedOrCompleted) {
+        console.warn('[booking][validation] Second cut already booked/completed', {
+          clientId: finalClientId,
+        });
+        return NextResponse.json(
+          { 
+            ok: false, 
+            message: "You've already booked or used your $10 second cut.",
+            code: "SECOND_CUT_ALREADY_USED",
+          },
+          { status: 400 }
+        );
+      }
+      
+      // Check if user is in SECOND_WINDOW stage
+      if (funnel.stage !== "SECOND_WINDOW") {
+        console.warn('[booking][validation] Not in SECOND_WINDOW stage', {
+          clientId: finalClientId,
+          stage: funnel.stage,
+        });
+        return NextResponse.json(
+          { 
+            ok: false, 
+            message: "You're not eligible for the $10 second cut. Please check your account status.",
+            code: "NOT_ELIGIBLE_SECOND_CUT",
+          },
+          { status: 400 }
+        );
+      }
+      
+      // Check if window has expired
+      if (funnel.secondWindowExpiresAt && new Date() >= funnel.secondWindowExpiresAt) {
+        console.warn('[booking][validation] Second cut window expired', {
+          clientId: finalClientId,
+          expiresAt: funnel.secondWindowExpiresAt.toISOString(),
+        });
+        return NextResponse.json(
+          { 
+            ok: false, 
+            message: "The $10 second cut offer has expired.",
+            code: "SECOND_CUT_WINDOW_EXPIRED",
+          },
+          { status: 400 }
+        );
+      }
+      
+      // Second-cut promo
+      appointmentData.kind = "DISCOUNT_SECOND";
+      appointmentData.isFree = false;
+      appointmentData.priceCents = PRICING.secondCut10.cents;
+      
+      // Handle payment method
+      if (data.paymentMethod === "CASH_APP") {
+        // Cash App payment: verify intent before creating booking
+        if (!data.cashAppIntentId) {
+          return NextResponse.json(
+            { ok: false, message: "Cash App payment intent ID is required." },
+            { status: 400 }
+          );
+        }
+
+        // Load and verify Cash App intent
+        const intent = await prisma.cashAppPaymentIntent.findUnique({
+          where: { id: data.cashAppIntentId },
+        });
+
+        if (!intent) {
+          return NextResponse.json(
+            { ok: false, message: "Payment intent not found." },
+            { status: 404 }
+          );
+        }
+
+        // Verify intent belongs to user
+        if (intent.userId !== finalClientId) {
+          return NextResponse.json(
+            { ok: false, message: "Payment intent does not belong to you." },
+            { status: 403 }
+          );
+        }
+
+        // Verify intent is CONFIRMED
+        if (intent.status !== "CONFIRMED") {
+          return NextResponse.json(
+            { ok: false, message: `Payment intent is ${intent.status.toLowerCase()}. Please complete payment first.` },
+            { status: 400 }
+          );
+        }
+
+        // Verify amount matches expected price
+        if (intent.amountCents !== PRICING.secondCut10.cents) {
+          return NextResponse.json(
+            { ok: false, message: "Payment amount does not match booking price." },
+            { status: 400 }
+          );
+        }
+
+        // Verify not expired
+        if (intent.expiresAt && new Date() > intent.expiresAt) {
+          return NextResponse.json(
+            { ok: false, message: "Payment intent has expired." },
+            { status: 400 }
+          );
+        }
+
+        // Set payment details
+        appointmentData.paidVia = "CASH_APP";
+        appointmentData.paymentStatus = "PAID";
+        appointmentData.cashAppIntentId = intent.id;
+      } else {
+        // Stripe payment (default)
+      appointmentData.paymentStatus = "PENDING";
+      }
+    } else if (bookingState.type === "MEMBERSHIP_INCLUDED") {
+      // Membership-included cut - check cuts-per-month limit
+      const activeSubscription = await prisma.subscription.findFirst({
+        where: {
+          userId: finalClientId,
+          status: { in: ["ACTIVE", "TRIAL"] },
+        },
+        include: {
+          plan: true,
+        },
+      });
+
+      if (!activeSubscription) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: "You don't have an active membership for this booking.",
+            code: "NO_ACTIVE_MEMBERSHIP",
+          },
+          { status: 400 }
+        );
+      }
+
+      // Determine membership period
+      const periodStart = activeSubscription.startDate;
+      const periodEnd = activeSubscription.renewsAt ?? (() => {
+        const end = new Date(periodStart);
+        end.setMonth(end.getMonth() + 1);
+        return end;
+      })();
+
+      // Derive allowed cuts per month
+      const allowed = activeSubscription.plan?.cutsPerMonth ?? 0;
+
+      // If allowed > 0, check the limit
+      if (allowed > 0) {
+        // === GUARD: Check membership limit with transaction to prevent race conditions ===
+        // Use a transaction to ensure atomic check-and-create
+        // Note: SQLite doesn't support row-level locking, but transaction still helps
+        const used = await prisma.appointment.count({
+          where: {
+            clientId: finalClientId,
+            kind: "MEMBERSHIP_INCLUDED",
+            status: { in: ["BOOKED", "COMPLETED", "CONFIRMED"] },
+            startAt: {
+              gte: periodStart,
+              lt: periodEnd,
+            },
+            // Exclude the old appointment if we're rescheduling
+            ...(oldAppointmentId ? { id: { not: oldAppointmentId } } : {}),
+          },
+        });
+
+        // === GUARD: Check limit BEFORE creating appointment ===
+        if (used >= allowed) {
+          console.warn('[booking][validation] Membership limit reached', {
+            clientId: finalClientId,
+            allowed,
+            used,
+            periodStart: periodStart.toISOString(),
+            periodEnd: periodEnd.toISOString(),
+          });
+          return NextResponse.json(
+            {
+              ok: false,
+              error: "You've used all your included cuts for this membership period.",
+              code: "MEMBERSHIP_LIMIT_REACHED",
+              allowed,
+              used,
+            },
+            { status: 400 }
+          );
+        }
+        
+        // === GUARD: Double-check limit is still valid (defensive check) ===
+        // This helps catch race conditions where another booking was created between check and create
+        // Note: This is not perfect (still a race window), but better than nothing
+        const usedAgain = await prisma.appointment.count({
+          where: {
+            clientId: finalClientId,
+            kind: "MEMBERSHIP_INCLUDED",
+            status: { in: ["BOOKED", "COMPLETED", "CONFIRMED"] },
+            startAt: {
+              gte: periodStart,
+              lt: periodEnd,
+            },
+            ...(oldAppointmentId ? { id: { not: oldAppointmentId } } : {}),
+          },
+        });
+        
+        if (usedAgain >= allowed) {
+          console.error('[booking][validation] Membership limit reached between checks (race condition)', {
+            clientId: finalClientId,
+            allowed,
+            usedFirst: used,
+            usedSecond: usedAgain,
+          });
+          return NextResponse.json(
+            {
+              ok: false,
+              error: "This time slot is no longer available. Another booking was just created.",
+              code: "MEMBERSHIP_LIMIT_REACHED_RACE",
+              allowed,
+              used: usedAgain,
+            },
+            { status: 409 }
+          );
+        }
+      }
+
+      // Membership-included cut
+      appointmentData.kind = "MEMBERSHIP_INCLUDED";
+      appointmentData.isFree = true;
+      appointmentData.priceCents = 0; // Included in membership
+      appointmentData.paymentStatus = "WAIVED";
+    } else if (bookingState.type === "FIRST_FREE" || data.plan === "trial") {
+      // First free cut
+      appointmentData.kind = "TRIAL_FREE";
+      appointmentData.isFree = true; // Keep isFree and kind in sync
+      appointmentData.priceCents = PRICING.freeTrial.cents;
+      appointmentData.paymentStatus = "WAIVED";
+    } else {
+      // ONE_OFF: Standard or deluxe paid cut
+      appointmentData.kind = "ONE_OFF";
+      appointmentData.isFree = false;
+      const pricing = getPricingByPlanId(data.plan);
+      appointmentData.priceCents = pricing.cents;
+      
+      // Handle payment method
+      if (data.paymentMethod === "CASH_APP") {
+        // Cash App payment: verify intent before creating booking
+        if (!data.cashAppIntentId) {
+          return NextResponse.json(
+            { ok: false, message: "Cash App payment intent ID is required." },
+            { status: 400 }
+          );
+        }
+
+        // Load and verify Cash App intent
+        const intent = await prisma.cashAppPaymentIntent.findUnique({
+          where: { id: data.cashAppIntentId },
+        });
+
+        if (!intent) {
+          return NextResponse.json(
+            { ok: false, message: "Payment intent not found." },
+            { status: 404 }
+          );
+        }
+
+        // Verify intent belongs to user
+        if (intent.userId !== finalClientId) {
+          return NextResponse.json(
+            { ok: false, message: "Payment intent does not belong to you." },
+            { status: 403 }
+          );
+        }
+
+        // Verify intent is CONFIRMED
+        if (intent.status !== "CONFIRMED") {
+          return NextResponse.json(
+            { ok: false, message: `Payment intent is ${intent.status.toLowerCase()}. Please complete payment first.` },
+            { status: 400 }
+          );
+        }
+
+        // Verify amount matches expected price
+        if (intent.amountCents !== pricing.cents) {
+          return NextResponse.json(
+            { ok: false, message: "Payment amount does not match booking price." },
+            { status: 400 }
+          );
+        }
+
+        // Verify not expired
+        if (intent.expiresAt && new Date() > intent.expiresAt) {
+          return NextResponse.json(
+            { ok: false, message: "Payment intent has expired." },
+            { status: 400 }
+          );
+        }
+
+        // Set payment details
+        appointmentData.paidVia = "CASH_APP";
+        appointmentData.paymentStatus = "PAID";
+        appointmentData.cashAppIntentId = intent.id;
+      } else {
+        // Stripe payment (default)
+      appointmentData.paymentStatus = "PENDING";
+      }
+    }
 
     console.log('[booking] creating appointment', {
       clientId: finalClientId,
@@ -455,6 +941,14 @@ export async function POST(req: NextRequest) {
           });
           console.log("[booking][DEBUG] Old appointment canceled:", oldAppointmentId);
 
+          // Explicitly ensure status is BOOKED for rescheduled appointments
+          appointmentData.status = "BOOKED" as const;
+          
+          console.log("[bookings][STATUS_CHECK]", {
+            kind: (appointmentData as any).kind,
+            status: (appointmentData as any).status,
+          });
+
           // Create the new appointment
           const newAppt = await tx.appointment.create({
             // TS: relax type checking here, runtime is already working in dev
@@ -462,11 +956,29 @@ export async function POST(req: NextRequest) {
             include: includeSelect,
           });
           console.log("[booking][DEBUG] New appointment created:", newAppt.id);
+          console.log("[bookings] created appointment", {
+            id: newAppt.id,
+            clientId: newAppt.clientId,
+            barberId: newAppt.barberId,
+            status: newAppt.status,
+            kind: (newAppt as any).kind,
+            startAt: newAppt.startAt.toISOString(),
+            priceCents: (newAppt as any).priceCents,
+            isFree: newAppt.isFree,
+          });
           return newAppt;
         });
         appointment = result;
       } else {
         // Regular booking: just create
+        // Explicitly ensure status is BOOKED for all new appointments
+        appointmentData.status = "BOOKED" as const;
+        
+        console.log("[bookings][STATUS_CHECK]", {
+          kind: (appointmentData as any).kind,
+          status: (appointmentData as any).status,
+        });
+        
         console.log("[booking][DEBUG] Regular booking: calling prisma.appointment.create()...");
         console.log("[booking][DEBUG] Prisma create() data:", JSON.stringify(appointmentData, (key, value) => {
           if (value instanceof Date) return value.toISOString();
@@ -477,6 +989,16 @@ export async function POST(req: NextRequest) {
           // TS: relax type checking here, runtime is already working in dev
           data: appointmentData as any,
           include: includeSelect,
+        });
+        console.log("[bookings] created appointment", {
+          id: appointment.id,
+          clientId: appointment.clientId,
+          barberId: appointment.barberId,
+          status: appointment.status,
+          kind: (appointment as any).kind,
+          startAt: appointment.startAt.toISOString(),
+          priceCents: (appointment as any).priceCents,
+          isFree: appointment.isFree,
         });
       }
 
@@ -542,31 +1064,58 @@ export async function POST(req: NextRequest) {
     // and conflict detection via Appointment model. No need to update legacy Availability table.
     // The availability API automatically excludes booked appointments when generating slots.
 
-    // Debit points for booking (except for free trials)
-    // Free Test Cut (trial plan) requires 0 points and bypasses the points check entirely
-    if (data.plan !== "trial") {
+    // Handle points: either deduct for points redemption OR debit for normal booking
+    if (data.usePoints === true) {
+      // Deduct 150 points for points redemption
       try {
-        await debit(finalClientId, 5, 'BOOKING_DEBIT', 'BOOKING', appointment.id);
+        await debit(finalClientId, 150, 'POINTS_REDEMPTION', 'APPOINTMENT', appointment.id);
         if (process.env.NODE_ENV === "development") {
-          console.log(`✅ Debited 5 points from user ${finalClientId} for booking ${appointment.id}`);
+          console.log(`✅ Debited 150 points from user ${finalClientId} for points redemption booking ${appointment.id}`);
         }
       } catch (pointsError: any) {
-        // If insufficient points, rollback the appointment
+        // If insufficient points (shouldn't happen due to earlier check, but be safe), rollback
         await prisma.appointment.delete({ where: { id: appointment.id } });
         
         if (process.env.NODE_ENV === "development") {
-          console.error("[bookings] Points debit failed, rolled back appointment:", pointsError.message);
+          console.error("[bookings] Points redemption failed, rolled back appointment:", pointsError.message);
         }
         
         return NextResponse.json(
-          { ok: false, message: "Not enough points. Please subscribe or renew to continue." },
-          { status: 402 }
+          { ok: false, error: "Failed to redeem points. Please try again.", code: "POINTS_REDEMPTION_FAILED" },
+          { status: 500 }
         );
       }
     } else {
-      // Free Test Cut: no points required, log for debugging
-      if (process.env.NODE_ENV === "development") {
-        console.log(`✅ Free Test Cut booking created (no points deducted): ${appointment.id}`);
+      // Debit points for booking (except for free trials, membership-included, and second-cut promo)
+      // Free Test Cut (trial plan), MEMBERSHIP_INCLUDED, and DISCOUNT_SECOND promo require 0 points and bypass the points check entirely
+      const isFreeOrPromo = data.plan === "trial" || data.kind === "DISCOUNT_SECOND" || appointmentData.kind === "MEMBERSHIP_INCLUDED";
+      if (!isFreeOrPromo) {
+        try {
+          await debit(finalClientId, 5, 'BOOKING_DEBIT', 'BOOKING', appointment.id);
+          if (process.env.NODE_ENV === "development") {
+            console.log(`✅ Debited 5 points from user ${finalClientId} for booking ${appointment.id}`);
+          }
+        } catch (pointsError: any) {
+          // If insufficient points, rollback the appointment
+          await prisma.appointment.delete({ where: { id: appointment.id } });
+          
+          if (process.env.NODE_ENV === "development") {
+            console.error("[bookings] Points debit failed, rolled back appointment:", pointsError.message);
+          }
+          
+          return NextResponse.json(
+            { ok: false, message: "Not enough points. Please subscribe or renew to continue." },
+            { status: 402 }
+          );
+        }
+      } else {
+        // Free Test Cut, membership-included, or second-cut promo: no points required, log for debugging
+        if (process.env.NODE_ENV === "development") {
+          const bookingType = data.kind === "DISCOUNT_SECOND" ? "Second-cut promo" : 
+                              appointmentData.kind === "MEMBERSHIP_INCLUDED" ? "Membership-included" : 
+                              "Free Test Cut";
+          console.log(`✅ ${bookingType} booking created (no points deducted): ${appointment.id}`);
+        }
       }
     }
 
@@ -655,20 +1204,24 @@ export async function POST(req: NextRequest) {
       icsContent: emailResult.emailed ? undefined : icsBase64 
     };
     
+    // Only log full response payload in development (may be large)
+    if (process.env.NODE_ENV !== "production") {
     console.log("[booking][DEBUG] Final response payload:", JSON.stringify(response, (key, value) => {
       if (value instanceof Date) return value.toISOString();
       return value;
     }, 2));
+    }
     
     return NextResponse.json(response, { status: 201 });
   } catch (error: any) {
-    console.error('[booking][fatal]', error);
+    // Always log fatal errors, but gate stack traces in production
     console.error('[booking][fatal]', {
       message: error?.message || String(error),
-      stack: error?.stack,
       code: error?.code,
       meta: error?.meta,
+      ...(process.env.NODE_ENV !== "production" && { stack: error?.stack }),
     });
+    // TODO: Send to error tracking service in production
 
     if (error instanceof z.ZodError) {
       console.warn('[booking][validation]', 'zod_error', { issues: error.issues });

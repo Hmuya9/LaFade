@@ -6,6 +6,12 @@ import { getAvailableSlotsForDate, findBarberByIdOrName } from "@/lib/availabili
 export const runtime = "nodejs";
 export const dynamic = 'force-dynamic'
 
+// V1 Launch Safety: Only allow these two real barbers
+const REAL_BARBER_IDS = [
+  "cmihqddi20001vw3oyt77w4uv",
+  "cmj6jzd1j0000vw8ozlyw14o9",
+];
+
 /**
  * Availability API endpoint.
  * 
@@ -53,6 +59,14 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(
         { error: "Barber not found" },
         { status: 404 }
+      )
+    }
+
+    // V1 Launch Safety: Only allow real barbers
+    if (!REAL_BARBER_IDS.includes(barber.id)) {
+      return NextResponse.json(
+        { error: "Barber not available" },
+        { status: 403 }
       )
     }
 

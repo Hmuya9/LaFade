@@ -5,6 +5,8 @@ import { Navbar } from "@/components/Navbar";
 import { BRAND } from "@/lib/brand";
 import { Providers } from "@/components/providers";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+// Ensure env validation runs at boot
+import "@/lib/env";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -35,7 +37,7 @@ export default function RootLayout({
         <Providers>
           <ErrorBoundary>
             <Navbar />
-            <main className="flex-1">
+            <main className="flex-1 min-h-0">
               {children}
             </main>
           </ErrorBoundary>

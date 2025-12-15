@@ -75,6 +75,21 @@ export function NextAppointmentCard({ nextAppointment }: NextAppointmentCardProp
               )}
             </div>
 
+            {/* Barber Contact Info */}
+            {(nextAppointment.barber.email || nextAppointment.barber.phone) && (
+              <div className="mt-3 pt-3 border-t border-rose-200/40 text-xs text-slate-600 space-y-1">
+                <p className="font-medium text-slate-700">Barber Contact:</p>
+                {nextAppointment.barber.email && <p>📧 {nextAppointment.barber.email}</p>}
+                {nextAppointment.barber.phone ? (
+                  <p>
+                    📞 <a href={`tel:${nextAppointment.barber.phone}`} className="text-rose-600 hover:text-rose-700 underline">{nextAppointment.barber.phone}</a>
+                  </p>
+                ) : (
+                  <p className="text-slate-400">📞 Phone not set (ask admin)</p>
+                )}
+              </div>
+            )}
+
             {/* Confirmation Message */}
             <div className="mt-4 pt-4 border-t border-rose-200/60">
               <p className="text-sm text-slate-700 leading-relaxed">
@@ -92,11 +107,11 @@ export function NextAppointmentCard({ nextAppointment }: NextAppointmentCardProp
               </p>
             </div>
 
-            <Link href="/account#appointments">
-              <Button className="w-full mt-4 bg-gradient-to-r from-rose-600 to-amber-600 hover:from-rose-700 hover:to-amber-700 text-white shadow-md hover:shadow-lg transition-all duration-150 ease-out active:scale-95 active:shadow-inner">
+            <Button asChild className="w-full mt-4 bg-gradient-to-r from-rose-600 to-amber-600 hover:from-rose-700 hover:to-amber-700 text-white shadow-md hover:shadow-lg transition-all duration-150 ease-out active:scale-95 active:shadow-inner">
+              <Link href="/account#appointments">
                 Manage Appointment
-              </Button>
-            </Link>
+              </Link>
+            </Button>
           </div>
         </div>
       </CardContent>

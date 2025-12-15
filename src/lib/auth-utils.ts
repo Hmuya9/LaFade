@@ -57,21 +57,26 @@ export async function findUserByEmailInsensitive(
   // If not found, try case-insensitive lookup using raw SQL for PostgreSQL
   // This handles edge cases where emails might have been stored with different casing
   if (!user) {
-    const result = await prisma.$queryRaw<Array<{
-      id: string;
-      email: string;
-      name: string | null;
-      role: string;
-      passwordHash: string | null;
-    }>>`
-      SELECT id, email, name, role, "passwordHash"
-      FROM "User"
-      WHERE LOWER(email) = LOWER(${target})
-      LIMIT 1
-    `;
+    try {
+      const result = await prisma.$queryRaw<Array<{
+        id: string;
+        email: string;
+        name: string | null;
+        role: string;
+        passwordHash: string | null;
+      }>>`
+        SELECT id, email, name, role, "passwordHash"
+        FROM "User"
+        WHERE LOWER(email) = LOWER(${target}::text)
+        LIMIT 1
+      `;
 
-    if (result && result.length > 0) {
-      user = result[0] as any;
+      if (result && result.length > 0) {
+        user = result[0] as any;
+      }
+    } catch (sqlError) {
+      // If raw SQL fails, log but don't throw - we already tried the direct lookup
+      console.error("[auth] findUserByEmailInsensitive: raw SQL query failed", sqlError);
     }
   }
 

@@ -8,6 +8,12 @@
 import { prisma } from "@/lib/db";
 import { formatTime12Hour, parse12HourTime } from "@/lib/time-utils";
 
+// V1 Launch Safety: Only allow these two real barbers
+const REAL_BARBER_IDS = [
+  "cmihqddi20001vw3oyt77w4uv",
+  "cmj6jzd1j0000vw8ozlyw14o9",
+];
+
 // Slot duration in minutes (30-minute appointments)
 export const SLOT_DURATION = 30;
 
@@ -195,6 +201,10 @@ export async function findBarberByIdOrName(
   barberName?: string
 ): Promise<{ id: string; name: string | null } | null> {
   if (barberId) {
+    // V1 Launch Safety: Only allow real barbers
+    if (!REAL_BARBER_IDS.includes(barberId)) {
+      return null;
+    }
     const barber = await prisma.user.findUnique({
       where: { id: barberId },
       select: { id: true, name: true },
@@ -208,6 +218,7 @@ export async function findBarberByIdOrName(
       where: {
         name: { contains: barberName },
         role: "BARBER",
+        id: { in: REAL_BARBER_IDS },
       },
       select: { id: true, name: true },
     });

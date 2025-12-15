@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { PLANS } from "@/config/plans";
 import { BRAND } from "@/lib/brand";
 import { TestimonialsSection } from "./_components/TestimonialsSection";
+import { PRICING, getPricingByPlanId, formatPrice } from "@/lib/pricing";
 
 export default async function Home() {
   // Check if user is logged in and redirect based on role
@@ -84,7 +85,7 @@ export default async function Home() {
                 <CardHeader className="text-center">
                   <CardTitle className="text-2xl font-bold text-zinc-900 mb-2">{plan.name}</CardTitle>
                   <div className="text-4xl font-bold text-zinc-900 mb-1">
-                    ${(plan.priceMonthlyCents/100).toFixed(2)}
+                    {formatPrice(getPricingByPlanId(plan.id as "trial" | "standard" | "deluxe").cents)}
                   </div>
                   <CardDescription className="text-zinc-600 mb-6">per month</CardDescription>
                 </CardHeader>

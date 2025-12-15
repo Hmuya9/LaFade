@@ -1,11 +1,12 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useSession } from "next-auth/react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { AppointmentCard } from "@/components/ui/appointment-card";
 import type { AppointmentCardData } from "@/components/ui/appointment-card";
-import { Calendar, Clock, User, MapPin } from "lucide-react";
+import { Calendar, Clock, User, MapPin, QrCode, Star } from "lucide-react";
 import { format } from "date-fns";
 import { TimeRangeClient } from "@/components/TimeRangeClient";
 
@@ -25,6 +26,8 @@ type BarberAppointment = {
   address: string | null;
   notes: string | null;
   isFree: boolean;
+  rating: number | null;
+  review: string | null;
 };
 
 type MyScheduleData = {
@@ -33,9 +36,11 @@ type MyScheduleData = {
 };
 
 export function MyScheduleSection() {
+  const { data: session } = useSession();
   const [data, setData] = useState<MyScheduleData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showQr, setShowQr] = useState<{ apptId: string; barberId: string } | null>(null);
 
   useEffect(() => {
     async function fetchSchedule() {
@@ -164,20 +169,29 @@ export function MyScheduleSection() {
               {today.map((apt) => (
                 <div
                   key={apt.id}
-                  className="border border-slate-200 rounded-xl p-4 bg-white hover:shadow-md transition-shadow"
+                  className={`border rounded-xl p-4 transition-shadow ${
+                    apt.status === "COMPLETED"
+                      ? "border-slate-300 bg-slate-50/50"
+                      : "border-slate-200 bg-white hover:shadow-md"
+                  }`}
                 >
                   <div className="flex items-start justify-between mb-3">
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-2">
-                        <User className="w-4 h-4 text-slate-600" />
-                        <span className="font-semibold text-slate-900">
+                        <User className={`w-4 h-4 ${apt.status === "COMPLETED" ? "text-slate-400" : "text-slate-600"}`} />
+                        <span className={`font-semibold ${apt.status === "COMPLETED" ? "text-slate-500" : "text-slate-900"}`}>
                           {apt.client.name}
                         </span>
                         <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">
                           {apt.plan}
                         </span>
+                        {apt.status === "COMPLETED" && (
+                          <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
+                            Completed
+                          </span>
+                        )}
                       </div>
-                      <div className="text-sm text-slate-600 space-y-1">
+                      <div className={`text-sm space-y-1 ${apt.status === "COMPLETED" ? "text-slate-500" : "text-slate-600"}`}>
                         <div className="flex items-center gap-2">
                           <Clock className="w-3.5 h-3.5" />
                           <TimeRangeClient 
@@ -185,6 +199,25 @@ export function MyScheduleSection() {
                             endAt={apt.endAt}
                           />
                         </div>
+                        {apt.rating !== null && (
+                          <div className="flex items-center gap-1">
+                            {[1, 2, 3, 4, 5].map((star) => (
+                              <Star
+                                key={star}
+                                className={`w-3.5 h-3.5 ${
+                                  star <= apt.rating!
+                                    ? "fill-yellow-400 text-yellow-400"
+                                    : "fill-slate-200 text-slate-200"
+                                }`}
+                              />
+                            ))}
+                          </div>
+                        )}
+                        {apt.review && (
+                          <p className="text-xs text-slate-600 italic">
+                            {apt.review.length > 80 ? `${apt.review.substring(0, 80)}…` : apt.review}
+                          </p>
+                        )}
                         {apt.type === "HOME" && apt.address && (
                           <div className="flex items-center gap-2">
                             <MapPin className="w-3.5 h-3.5" />
@@ -215,28 +248,21 @@ export function MyScheduleSection() {
                           </Button>
                         </>
                       )}
-                      {apt.status === "CONFIRMED" && (
-                        <>
-                          <Button
-                            size="sm"
-                            onClick={() => handleStatusUpdate(apt.id, "COMPLETED")}
-                            className="bg-emerald-500 hover:bg-emerald-600 text-white"
-                          >
-                            Complete
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => handleStatusUpdate(apt.id, "NO_SHOW")}
-                          >
-                            No Show
-                          </Button>
-                        </>
-                      )}
-                      {apt.status === "COMPLETED" && (
-                        <span className="text-xs px-2 py-1 rounded-full bg-emerald-100 text-emerald-700">
-                          Completed
-                        </span>
+                      {(apt.status === "CONFIRMED" || apt.status === "BOOKED") && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            const barberId = (session?.user as any)?.id;
+                            if (barberId) {
+                              setShowQr({ apptId: apt.id, barberId });
+                            }
+                          }}
+                          className="flex items-center gap-1"
+                        >
+                          <QrCode className="w-3.5 h-3.5" />
+                          Show QR
+                        </Button>
                       )}
                     </div>
                   </div>
@@ -261,20 +287,29 @@ export function MyScheduleSection() {
               {next7.map((apt) => (
                 <div
                   key={apt.id}
-                  className="border border-slate-200 rounded-xl p-4 bg-white hover:shadow-md transition-shadow"
+                  className={`border rounded-xl p-4 transition-shadow ${
+                    apt.status === "COMPLETED"
+                      ? "border-slate-300 bg-slate-50/50"
+                      : "border-slate-200 bg-white hover:shadow-md"
+                  }`}
                 >
                   <div className="flex items-start justify-between mb-3">
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-2">
-                        <User className="w-4 h-4 text-slate-600" />
-                        <span className="font-semibold text-slate-900">
+                        <User className={`w-4 h-4 ${apt.status === "COMPLETED" ? "text-slate-400" : "text-slate-600"}`} />
+                        <span className={`font-semibold ${apt.status === "COMPLETED" ? "text-slate-500" : "text-slate-900"}`}>
                           {apt.client.name}
                         </span>
                         <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">
                           {apt.plan}
                         </span>
+                        {apt.status === "COMPLETED" && (
+                          <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
+                            Completed
+                          </span>
+                        )}
                       </div>
-                      <div className="text-sm text-slate-600 space-y-1">
+                      <div className={`text-sm space-y-1 ${apt.status === "COMPLETED" ? "text-slate-500" : "text-slate-600"}`}>
                         <div className="flex items-center gap-2">
                           <Calendar className="w-3.5 h-3.5" />
                           <TimeRangeClient 
@@ -291,6 +326,25 @@ export function MyScheduleSection() {
                             endAt={apt.endAt}
                           />
                         </div>
+                        {apt.rating !== null && (
+                          <div className="flex items-center gap-1">
+                            {[1, 2, 3, 4, 5].map((star) => (
+                              <Star
+                                key={star}
+                                className={`w-3.5 h-3.5 ${
+                                  star <= apt.rating!
+                                    ? "fill-yellow-400 text-yellow-400"
+                                    : "fill-slate-200 text-slate-200"
+                                }`}
+                              />
+                            ))}
+                          </div>
+                        )}
+                        {apt.review && (
+                          <p className="text-xs text-slate-600 italic">
+                            {apt.review.length > 80 ? `${apt.review.substring(0, 80)}…` : apt.review}
+                          </p>
+                        )}
                         {apt.type === "HOME" && apt.address && (
                           <div className="flex items-center gap-2">
                             <MapPin className="w-3.5 h-3.5" />
@@ -321,23 +375,21 @@ export function MyScheduleSection() {
                           </Button>
                         </>
                       )}
-                      {apt.status === "CONFIRMED" && (
-                        <>
-                          <Button
-                            size="sm"
-                            onClick={() => handleStatusUpdate(apt.id, "COMPLETED")}
-                            className="bg-emerald-500 hover:bg-emerald-600 text-white"
-                          >
-                            Complete
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => handleStatusUpdate(apt.id, "NO_SHOW")}
-                          >
-                            No Show
-                          </Button>
-                        </>
+                      {(apt.status === "CONFIRMED" || apt.status === "BOOKED") && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            const barberId = (session?.user as any)?.id;
+                            if (barberId) {
+                              setShowQr({ apptId: apt.id, barberId });
+                            }
+                          }}
+                          className="flex items-center gap-1"
+                        >
+                          <QrCode className="w-3.5 h-3.5" />
+                          Show QR
+                        </Button>
                       )}
                     </div>
                   </div>
@@ -347,6 +399,34 @@ export function MyScheduleSection() {
           )}
         </div>
       </CardContent>
+
+      {/* Full-screen QR overlay */}
+      {showQr && (
+        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/90 px-4">
+          <div className="mb-4 text-center text-white">
+            <h2 className="text-xl font-semibold">Have your client scan this QR</h2>
+            <p className="text-sm text-zinc-200 mt-1">
+              This will open their confirmation screen for this appointment.
+            </p>
+          </div>
+          <div className="bg-white p-4 rounded-xl shadow-lg">
+            <img
+              src={`https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(
+                `${typeof window !== "undefined" ? window.location.origin : ""}/cut/confirm?appt=${showQr.apptId}&b=${showQr.barberId}`
+              )}&size=280x280`}
+              alt="Cut confirmation QR code"
+              className="h-72 w-72"
+            />
+          </div>
+          <Button
+            variant="outline"
+            className="mt-6 text-white border-white/60 hover:bg-white/10"
+            onClick={() => setShowQr(null)}
+          >
+            Close
+          </Button>
+        </div>
+      )}
     </Card>
   );
 }

@@ -1,7 +1,17 @@
-import { Suspense } from "react";
+import { redirect } from "next/navigation";
+import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { env } from "@/lib/env";
 import { BookingForm } from "./_components/BookingForm";
+import { laf } from "@/components/ui/lafadeStyles";
+// Business rules source of truth
+import { COPY, ONE_FREE_CUT_PER_USER, SECOND_CUT_PRICE_CENTS, MEMBERSHIP_STANDARD_PRICE_CENTS } from "@/lib/lafadeBusiness";
+
+// V1 Launch Safety: Only allow these two real barbers
+const REAL_BARBER_IDS = [
+  "cmihqddi20001vw3oyt77w4uv",
+  "cmj6jzd1j0000vw8ozlyw14o9",
+];
 
 async function getDefaultBarberId(): Promise<string | undefined> {
   const barberEmail = env.BARBER_EMAIL?.toLowerCase() ?? null;
@@ -13,6 +23,7 @@ async function getDefaultBarberId(): Promise<string | undefined> {
       where: {
         email: barberEmail,
         role: "BARBER",
+        id: { in: REAL_BARBER_IDS },
       },
       select: { id: true },
     });
@@ -27,8 +38,8 @@ async function getDefaultBarberId(): Promise<string | undefined> {
     const barberByRole = await prisma.user.findFirst({
       where: { 
         role: "BARBER",
-        // Explicitly exclude OWNER role users
         NOT: { role: "OWNER" },
+        id: { in: REAL_BARBER_IDS },
       },
       select: { id: true },
     });
@@ -44,11 +55,126 @@ async function getDefaultBarberId(): Promise<string | undefined> {
 export const dynamic = 'force-dynamic';
 
 export default async function BookingPage() {
+  const session = await auth();
+
+  if (!session?.user?.email) {
+    const url = new URL("/login", process.env.NEXTAUTH_URL || "http://localhost:3000");
+    url.searchParams.set("callbackUrl", "/booking");
+    redirect(url.toString());
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { email: session.user.email },
+    select: {
+      id: true,
+      role: true,
+    },
+  });
+
+  if (!user) {
+    redirect("/login");
+  }
+
+  // Redirect non-CLIENT users
+  if (user.role !== "CLIENT") {
+    if (user.role === "BARBER") {
+      redirect("/barber");
+    }
+    redirect("/admin/appointments");
+  }
+
+  // Query DB for funnel truth
+  const hasFreeCutBookedOrCompleted = await prisma.appointment.findFirst({
+    where: {
+      clientId: user.id,
+      kind: "TRIAL_FREE",
+      status: { not: "CANCELED" },
+    },
+  }).then(appt => !!appt);
+
+  const hasSecondCutBookedOrCompleted = await prisma.appointment.findFirst({
+    where: {
+      clientId: user.id,
+      kind: "DISCOUNT_SECOND",
+      status: { not: "CANCELED" },
+    },
+  }).then(appt => !!appt);
+
+  // Check for active membership (Subscription with ACTIVE or TRIAL status)
+  const activeSubscription = await prisma.subscription.findFirst({
+    where: {
+      userId: user.id,
+      status: { in: ["ACTIVE", "TRIAL"] },
+    },
+    include: {
+      plan: true,
+    },
+    orderBy: {
+      startDate: "desc",
+    },
+  });
+
+  const hasActiveMembership = !!activeSubscription;
+
+  // Calculate membership usage (reuse logic from /account)
+  let membershipUsage: { cutsAllowed: number; cutsUsed: number; cutsRemaining: number } | null = null;
+
+  if (activeSubscription && activeSubscription.plan?.cutsPerMonth && activeSubscription.plan.cutsPerMonth > 0) {
+    const cutsAllowed = activeSubscription.plan.cutsPerMonth;
+    const periodStart = activeSubscription.startDate;
+    const periodEnd = activeSubscription.renewsAt ?? (() => {
+      const end = new Date(periodStart);
+      end.setMonth(end.getMonth() + 1);
+      return end;
+    })();
+
+    const cutsUsed = await prisma.appointment.count({
+      where: {
+        clientId: user.id,
+        kind: "MEMBERSHIP_INCLUDED",
+        status: { in: ["BOOKED", "COMPLETED", "CONFIRMED"] },
+        startAt: {
+          gte: periodStart,
+          lt: periodEnd,
+        },
+      },
+    });
+
+    const cutsRemaining = Math.max(cutsAllowed - cutsUsed, 0);
+    membershipUsage = { cutsAllowed, cutsUsed, cutsRemaining };
+  }
+
+  // Compute bookingState based on DB truth
+  let bookingState: 
+    | { type: "FIRST_FREE" }
+    | { type: "MEMBERSHIP_INCLUDED"; remainingCutsThisPeriod: number; planName?: string }
+    | { type: "ONE_OFF" };
+
+  if (hasActiveMembership && membershipUsage) {
+    bookingState = {
+      type: "MEMBERSHIP_INCLUDED",
+      remainingCutsThisPeriod: membershipUsage.cutsRemaining,
+      planName: activeSubscription?.plan?.name || undefined,
+    };
+  } else if (!hasFreeCutBookedOrCompleted) {
+    bookingState = { type: "FIRST_FREE" };
+  } else {
+    bookingState = { type: "ONE_OFF" };
+  }
+
   const defaultBarberId = await getDefaultBarberId();
 
   return (
-    <Suspense fallback={null}>
-      <BookingForm defaultBarberId={defaultBarberId} />
-    </Suspense>
+    <div className={`${laf.page} ${laf.texture}`}>
+      <div className={laf.container}>
+        <BookingForm
+          defaultBarberId={defaultBarberId}
+          bookingState={bookingState}
+          hasFreeCutBookedOrCompleted={hasFreeCutBookedOrCompleted}
+          hasActiveMembership={hasActiveMembership}
+          membershipUsage={membershipUsage}
+        />
+      </div>
+    </div>
   );
 }

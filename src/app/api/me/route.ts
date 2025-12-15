@@ -17,11 +17,20 @@ export async function GET() {
 
   let points = 0;
   if (user) {
+    // Sum all points (no filtering by reason/refType) - includes subscription points
     const agg = await prisma.pointsLedger.aggregate({
       where: { userId: user.id },
       _sum: { delta: true }
     });
     points = agg._sum.delta ?? 0;
+    
+    // Log in development to verify points calculation
+    if (process.env.NODE_ENV === "development") {
+      console.log('[api/me] Points calculated', {
+        userId: user.id,
+        pointsTotal: points,
+      });
+    }
   }
 
   return NextResponse.json({

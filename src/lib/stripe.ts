@@ -1,7 +1,15 @@
 import Stripe from 'stripe'
 
 // For deployment, use placeholder if no API key is provided
-export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || 'sk_test_placeholder', {
+const stripeSecretKey = process.env.STRIPE_SECRET_KEY || 'sk_test_placeholder';
+
+// Log which Stripe key is being used (last 6 chars for verification, never log full key)
+console.log(
+  "[stripe] using secret key suffix",
+  stripeSecretKey.slice(-6)
+);
+
+export const stripe = new Stripe(stripeSecretKey, {
   apiVersion: '2025-08-27.basil',
 })
 

@@ -42,19 +42,49 @@ import { Pill } from "@/components/ui/pill";
 import { AnimatedList } from "@/components/ui/animated-list";
 import { PLANS } from "@/config/plans";
 import { BookingPortfolioSection } from "./BookingPortfolioSection";
-import { isFreeTestCut, getRequiredPointsForPlan } from "@/lib/plan-utils";
+import { isFreeTestCut } from "@/lib/plan-utils";
+import { PRICING, formatPrice } from "@/lib/pricing";
 import type { BarberDaySummary } from "@/lib/barber-weekly-summary";
 import { formatTime12Hour } from "@/lib/time-utils";
 import { getNext7Days, getNextDateForWeekday, formatDateShort, formatDateWithDay } from "@/lib/date-utils";
 import { TimeSlotsSkeleton } from "@/components/ui/time-slots-skeleton";
+import { laf } from "@/components/ui/lafadeStyles";
+import { COPY, MEMBERSHIP_STANDARD_PRICE_CENTS } from "@/lib/lafadeBusiness";
 
 type Opening = {
   date: string;
   time: string;
 };
 
+type BookingState =
+  | { type: "FIRST_FREE" }
+  | { type: "SECOND_DISCOUNT"; discountCents: number; deadline: string }
+  | { type: "MEMBERSHIP_INCLUDED"; remainingCutsThisPeriod: number; planName?: string }
+  | { type: "ONE_OFF" };
+
 type BookingFormProps = {
   defaultBarberId?: string;
+  // When true, this is the discounted second-cut flow; pricing is handled server-side.
+  isSecondCut?: boolean;
+  /**
+   * Booking state determined server-side. Controls which pricing flow applies.
+   */
+  bookingState?: BookingState;
+  /**
+   * When true, client already has a TRIAL_FREE appointment (non-canceled),
+   * so the free trial plan should be hidden and backend will reject new trials.
+   */
+  hasFreeCutBookedOrCompleted?: boolean;
+  /**
+   * When true, client has an active membership/subscription.
+   * Used to determine if upsell band should be shown.
+   */
+  hasActiveMembership?: boolean;
+  /**
+   * Membership usage information (cutsAllowed, cutsUsed, cutsRemaining).
+   * Only present when user has an active membership with cutsPerMonth > 0.
+   */
+  membershipUsage?: { cutsAllowed: number; cutsUsed: number; cutsRemaining: number } | null;
 };
 
 const DISABLED_BARBER_EMAILS = ["hussemuya.hm.hm@gmail.com"];
@@ -77,7 +107,7 @@ const bookingSchema = z.object({
 
 type BookingForm = z.infer<typeof bookingSchema>;
 
-export function BookingForm({ defaultBarberId }: BookingFormProps) {
+export function BookingForm({ defaultBarberId, isSecondCut, bookingState, hasFreeCutBookedOrCompleted, hasActiveMembership, membershipUsage }: BookingFormProps) {
   const searchParams = useSearchParams();
   const rescheduleId = searchParams.get("reschedule");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -87,7 +117,6 @@ export function BookingForm({ defaultBarberId }: BookingFormProps) {
   const [availableSlots, setAvailableSlots] = useState<string[]>([]);
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [successData, setSuccessData] = useState<{ emailed: boolean; icsUrl?: string; message?: string } | null>(null);
-  const [pointsBalance, setPointsBalance] = useState<number | null>(null);
   const [barbers, setBarbers] = useState<BarberOption[]>([]);
   const [loadingBarbers, setLoadingBarbers] = useState(true);
   const [weeklySummary, setWeeklySummary] = useState<BarberDaySummary[] | null>(null);
@@ -95,6 +124,15 @@ export function BookingForm({ defaultBarberId }: BookingFormProps) {
   const [nextOpenings, setNextOpenings] = useState<Opening[]>([]);
   const [loadingOpenings, setLoadingOpenings] = useState(false);
   const { data: session, status } = useSession();
+
+  // Determine default plan based on bookingState (server truth, no URL params)
+  const getDefaultPlan = (): "standard" | "deluxe" | "trial" => {
+    if (isSecondCut) return "standard";
+    if (bookingState?.type === "FIRST_FREE") return "trial";
+    if (bookingState?.type === "MEMBERSHIP_INCLUDED") return "standard";
+    // ONE_OFF: default to standard (plan picker will be shown)
+    return "standard";
+  };
 
   const {
     register,
@@ -105,10 +143,41 @@ export function BookingForm({ defaultBarberId }: BookingFormProps) {
   } = useForm<BookingForm>({
     resolver: zodResolver(bookingSchema),
     defaultValues: {
-      plan: (searchParams.get("plan") as "standard" | "deluxe" | "trial") || "standard",
+      plan: getDefaultPlan(),
       selectedBarber: "", // Will be set after barbers are fetched
     },
   });
+
+  // Lock plan based on bookingState (enforce server truth)
+  useEffect(() => {
+    if (isSecondCut) {
+      setValue("plan", "standard");
+    } else if (bookingState?.type === "FIRST_FREE") {
+      setValue("plan", "trial");
+    } else if (bookingState?.type === "MEMBERSHIP_INCLUDED") {
+      setValue("plan", "standard");
+    }
+  }, [isSecondCut, bookingState, setValue]);
+
+  // Filter available plans based on bookingState (enforce server truth)
+  // Hide plan picker for FIRST_FREE and MEMBERSHIP_INCLUDED
+  // Show plan picker ONLY for ONE_OFF
+  const shouldShowPlanPicker = 
+    isSecondCut 
+      ? false // Never show for second-cut
+      : bookingState?.type === "ONE_OFF"; // Show ONLY for ONE_OFF
+  
+  const availablePlans = isSecondCut
+    ? [] // No plan selection for second-cut
+    : shouldShowPlanPicker
+    ? PLANS.filter((plan) => {
+        // CRITICAL: Never show trial if user already used free cut
+        if (plan.id === "trial") {
+          return false; // Always hide if hasFreeCutBookedOrCompleted is true (server truth)
+        }
+        return true; // Always show standard and deluxe
+      })
+    : []; // Hide plan picker for FIRST_FREE and MEMBERSHIP_INCLUDED
 
   // Fetch barbers on mount
   useEffect(() => {
@@ -140,15 +209,6 @@ export function BookingForm({ defaultBarberId }: BookingFormProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Fetch points balance when user is logged in
-  useEffect(() => {
-    if (session?.user) {
-      fetch("/api/me")
-        .then(res => res.json())
-        .then(data => setPointsBalance(data.points))
-        .catch(err => console.error("Failed to fetch points:", err));
-    }
-  }, [session]);
 
   // Prefill form from session
   useEffect(() => {
@@ -218,8 +278,10 @@ export function BookingForm({ defaultBarberId }: BookingFormProps) {
   // Find the plan object from the selected plan ID
   const currentPlan = PLANS.find((p) => p.id === selectedPlan);
   const isFreeTrial = isFreeTestCut(currentPlan);
-  const requiredPoints = getRequiredPointsForPlan(currentPlan);
-  const hasEnoughPoints = pointsBalance === null || pointsBalance >= requiredPoints;
+  
+  // For MEMBERSHIP_INCLUDED, booking is free
+  const isMembershipIncluded = bookingState?.type === "MEMBERSHIP_INCLUDED";
+  const isFreeBooking = isFreeTrial || isMembershipIncluded;
 
   // Find selected barber details
   const selectedBarberData = barbers.find((b) => b.id === selectedBarber);
@@ -238,7 +300,7 @@ export function BookingForm({ defaultBarberId }: BookingFormProps) {
         const params = new URLSearchParams({
           barberId: selectedBarber, // Use barberId instead of barberName
           date: selectedDate,
-          plan: selectedPlan || '',
+          plan: isSecondCut ? "standard" : (selectedPlan || ""), // Lock to standard for second-cut
         });
 
         const response = await fetch(`/api/availability?${params}`);
@@ -262,7 +324,7 @@ export function BookingForm({ defaultBarberId }: BookingFormProps) {
     };
 
     fetchAvailability();
-  }, [selectedBarber, selectedDate, selectedPlan, setValue, watch]);
+  }, [selectedBarber, selectedDate, selectedPlan, isSecondCut, setValue, watch]);
 
   // Fetch weekly summary when barber changes
   useEffect(() => {
@@ -318,7 +380,7 @@ export function BookingForm({ defaultBarberId }: BookingFormProps) {
     };
 
     fetchNextOpenings();
-  }, [selectedBarber, selectedPlan]);
+  }, [selectedBarber, selectedPlan, isSecondCut]);
 
   // Helper to handle day pill click (sets date to next occurrence of that weekday)
   const handleDayPillClick = (dayOfWeek: number) => {
@@ -350,8 +412,33 @@ export function BookingForm({ defaultBarberId }: BookingFormProps) {
     setError(null);
 
     try {
-      // For trial bookings, use the existing direct booking flow
-      if (data.plan === "trial") {
+      // Determine the effective plan based on bookingState (enforce server truth)
+      // CRITICAL: Fail closed - never allow trial if user already used free cut
+      let effectivePlan: "standard" | "deluxe" | "trial";
+      if (bookingState?.type === "FIRST_FREE" && !hasFreeCutBookedOrCompleted) {
+        effectivePlan = "trial";
+      } else if (bookingState?.type === "MEMBERSHIP_INCLUDED") {
+        effectivePlan = "standard";
+      } else {
+        // ONE_OFF: use selected plan, but NEVER allow trial
+        effectivePlan = (data.plan === "trial" && hasFreeCutBookedOrCompleted) ? "standard" : data.plan;
+      }
+
+      // V1 ENFORCEMENT: Standard/Deluxe are subscription-only.
+      // Only DISCOUNT_SECOND is allowed as a one-off payment.
+      if (
+        bookingState?.type === "ONE_OFF" &&
+        (effectivePlan === "standard" || effectivePlan === "deluxe") &&
+        !isSecondCut
+      ) {
+        window.location.href = "/plans";
+        setIsSubmitting(false);
+        return;
+      }
+      
+      // For trial bookings or membership-included bookings, use direct booking flow
+      // (no Stripe payment needed)
+      if (effectivePlan === "trial" || bookingState?.type === "MEMBERSHIP_INCLUDED") {
         const idempotencyKey = generateIdempotencyKey();
         const headers: Record<string, string> = { "Content-Type": "application/json" };
         
@@ -378,6 +465,7 @@ export function BookingForm({ defaultBarberId }: BookingFormProps) {
           headers,
           body: JSON.stringify({
             ...data,
+            plan: effectivePlan, // Use the effective plan
             startAtUTC, // Send UTC ISO strings - server will use these
             endAtUTC,
             // Include rescheduleOf if we're rescheduling
@@ -395,10 +483,28 @@ export function BookingForm({ defaultBarberId }: BookingFormProps) {
             data: result,
           });
 
-          const message =
-            (result && (result.message || result.devError)) ||
-            (Array.isArray(result?.errors) && result.errors[0]?.message) ||
-            "Booking failed. Please try again.";
+          const code = result?.code;
+
+          // Handle MEMBERSHIP_LIMIT_REACHED with alert
+          if (code === "MEMBERSHIP_LIMIT_REACHED") {
+            alert(
+              result?.error ??
+                "You've used all your included cuts for this membership period."
+            );
+            setIsSubmitting(false);
+            return;
+          }
+
+          // Handle specific error codes
+          let message = "Booking failed. Please try again.";
+          if (result?.code === "NO_ACTIVE_MEMBERSHIP") {
+            message = "No active membership found. Please subscribe to continue.";
+          } else {
+            message =
+              (result && (result.message || result.error || result.devError)) ||
+              (Array.isArray(result?.errors) && result.errors[0]?.message) ||
+              "Booking failed. Please try again.";
+          }
 
           setError(message);
           return;
@@ -437,36 +543,75 @@ export function BookingForm({ defaultBarberId }: BookingFormProps) {
         return;
       }
 
-      // For paid plans, redirect to Stripe Checkout
+      // Stripe payment flow (default for paid plans)
+      const requestBody = {
+        appointmentData: {
+          customerName: data.customerName,
+          customerEmail: data.customerEmail,
+          customerPhone: data.customerPhone,
+          selectedDate: data.selectedDate,
+          selectedTime: data.selectedTime,
+          selectedBarber: data.selectedBarber,
+          plan: effectivePlan, // Use the effective plan
+          location: data.location,
+          notes: data.notes,
+          ...(isSecondCut ? { kind: "DISCOUNT_SECOND" } : {}),
+          bookingStateType: bookingState?.type, // Required for backend guard
+        }
+      };
+
+      // Log request body for DISCOUNT_SECOND debugging
+      if (isSecondCut) {
+        console.log("[BookingForm][DISCOUNT_SECOND] Sending request to /api/create-checkout-session:", requestBody);
+      }
+
       const checkoutRes = await fetch("/api/create-checkout-session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          appointmentData: {
-            customerName: data.customerName,
-            customerEmail: data.customerEmail,
-            customerPhone: data.customerPhone,
-            selectedDate: data.selectedDate,
-            selectedTime: data.selectedTime,
-            selectedBarber: data.selectedBarber,
-            plan: data.plan,
-            location: data.location,
-            notes: data.notes,
-          }
-        }),
+        body: JSON.stringify(requestBody),
       });
 
-      const checkoutResult = await checkoutRes.json();
+      // Parse response, handling both JSON and non-JSON errors
+      let checkoutResult: any = {};
+      try {
+        const text = await checkoutRes.text();
+        checkoutResult = text ? JSON.parse(text) : {};
+      } catch (parseError) {
+        console.error("[BookingForm] Failed to parse checkout response:", parseError);
+        throw new Error("Invalid response from payment server");
+      }
 
       if (!checkoutRes.ok) {
-        throw new Error(checkoutResult.error || "Failed to create checkout session");
+        // Extract error message with fallbacks - prioritize stripe_error for DISCOUNT_SECOND
+        let errorMessage = checkoutResult.error || `Payment setup failed (${checkoutRes.status})`;
+        
+        // For DISCOUNT_SECOND, show the actual Stripe error if available
+        if (isSecondCut && checkoutResult.stripe_error) {
+          errorMessage = `${checkoutResult.error || "Failed to create second-cut payment"}: ${checkoutResult.stripe_error}`;
+        } else if (checkoutResult.stripe_error) {
+          errorMessage = checkoutResult.stripe_error;
+        } else if (checkoutResult.devError) {
+          errorMessage = checkoutResult.devError;
+        }
+        
+        console.error("[BookingForm] Checkout failed:", {
+          status: checkoutRes.status,
+          error: errorMessage,
+          stripe_error: checkoutResult.stripe_error,
+          stripe_code: checkoutResult.stripe_code,
+          fullResponse: checkoutResult,
+          isSecondCut,
+        });
+        
+        throw new Error(errorMessage);
       }
 
       // Redirect to Stripe Checkout
       if (checkoutResult.url) {
         window.location.href = checkoutResult.url;
       } else {
-        throw new Error("No checkout URL received");
+        console.error("[BookingForm] No checkout URL in response:", checkoutResult);
+        throw new Error("No checkout URL received from payment server");
       }
       
     } catch (e: any) {
@@ -477,35 +622,30 @@ export function BookingForm({ defaultBarberId }: BookingFormProps) {
   };
 
   if (status === "loading") {
-    return <div>Loading...</div>
+    return <div className={laf.page}>Loading...</div>
   }
 
   return (
-    <div className="min-h-screen bg-zinc-50 py-8 pb-24 md:pb-8">
-      <div className="max-w-4xl mx-auto px-4">
-        <div className="text-center mb-8">
+    <div className={`${laf.page} ${laf.texture}`}>
+      <div className={laf.container}>
+        <header className="mb-8 text-center">
           <div className="flex justify-between items-center mb-4">
             <div></div>
-            <h1 className="text-4xl font-bold text-zinc-900">
+            <h1 className={laf.h1}>
               {rescheduleId ? "Reschedule Your Cut" : "Book Your Cut"}
             </h1>
             <div className="flex items-center gap-2">
-              {session?.user?.role === "CLIENT" && pointsBalance !== null && (
-                <div className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm font-medium">
-                  Points: {pointsBalance}
-                </div>
-              )}
               <SignInButton />
             </div>
           </div>
-          <p className="text-xl text-zinc-600">
+          <p className={laf.sub}>
             {rescheduleId && rescheduleData ? (
               <>You&apos;re rescheduling a cut with <span className="font-semibold text-rose-600">{barbers.find(b => b.id === rescheduleData.barberId)?.name || "your stylist"}</span>. Pick a new time below.</>
             ) : (
-              "Choose your date, time, and stylist"
+              "Pick your time — we'll automatically apply the best price for you."
             )}
           </p>
-        </div>
+        </header>
 
         {!session && (
           <Alert className="mb-6">
@@ -518,16 +658,72 @@ export function BookingForm({ defaultBarberId }: BookingFormProps) {
           </Alert>
         )}
 
-        {/* Only show points warning for paid plans when user has insufficient points */}
-        {session && !isFreeTrial && pointsBalance !== null && !hasEnoughPoints && (
-          <Alert className="mb-6">
-            <AlertDescription>
-              <div className="flex items-center justify-between">
-                <span>Not enough points — Subscribe to continue</span>
-                <a href="/account" className="text-blue-600 hover:text-blue-800 underline">Subscribe</a>
-              </div>
-            </AlertDescription>
-          </Alert>
+        {/* State banner based on bookingState */}
+        {bookingState && (
+          <div className={`${laf.card} ${laf.cardInner} mb-6`}>
+            <div className={laf.cardPad}>
+              {bookingState.type === "FIRST_FREE" && (
+                <div className="flex items-center gap-3">
+                  <span className="text-2xl">🎁</span>
+                  <div>
+                    <p className="text-lg font-semibold text-slate-900">New Year Special: Your first cut is on us!</p>
+                    <p className="text-sm text-slate-600">Start the year fresh with a free cut. No card required, no hidden fees — just pick a time and show up.</p>
+                  </div>
+                </div>
+              )}
+              {isSecondCut && (
+                <div className="flex items-center gap-3">
+                  <span className="text-2xl">🎄</span>
+                  <div>
+                    <p className="text-lg font-semibold text-slate-900">Holiday Special: Your second cut is just $10!</p>
+                    <p className="text-sm text-slate-600">Limited time offer: get your second cut at a special price. Perfect way to keep your fresh look going.</p>
+                  </div>
+                </div>
+              )}
+              {bookingState.type === "MEMBERSHIP_INCLUDED" && (
+                <div className="rounded-2xl bg-white/70 border border-zinc-200 border-dashed px-6 py-4 flex items-start gap-4 mb-6">
+                  <div className="mt-0.5 flex-shrink-0">
+                    <CheckCircle2 className="w-6 h-6 text-emerald-600" />
+                  </div>
+                  <div className="flex-1 text-sm">
+                    <p className="font-semibold text-emerald-900 tracking-tight mb-1">
+                      You&apos;re on the {bookingState.planName ?? "Standard"} membership
+                    </p>
+                    <p className="text-emerald-800/90 mb-2">
+                      This cut is included in your plan. We&apos;ll automatically apply the best price.
+                    </p>
+                    {membershipUsage && (
+                      <p className={`${laf.mono} text-xs text-zinc-700`}>
+                        Included cuts this period:{" "}
+                        <span className="font-semibold">
+                          {membershipUsage.cutsUsed}/{membershipUsage.cutsAllowed}
+                        </span>{" "}
+                        used ·{" "}
+                        <span className="font-semibold">
+                          {Math.max(membershipUsage.cutsRemaining, 0)}
+                        </span>{" "}
+                        remaining
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
+              {bookingState.type === "ONE_OFF" && !isSecondCut && (
+                <div className="flex items-center gap-3">
+                  <div className="flex-1">
+                    <p className="text-lg font-semibold text-slate-900">This is a one-time cut at regular price.</p>
+                    <p className="text-sm text-slate-600">
+                      You'll pay per cut for this booking. If you want to save and stay fresh every month,{" "}
+                      <a href="/plans" className="text-rose-600 hover:text-rose-700 underline font-medium">
+                        check the Plans page
+                      </a>
+                      .
+                    </p>
+                  </div>
+                </div>
+              )}
+                  </div>
+                  </div>
         )}
 
         {showSuccess && (
@@ -592,11 +788,8 @@ export function BookingForm({ defaultBarberId }: BookingFormProps) {
           <BookingPortfolioSection barberId={defaultBarberId} />
         </div>
 
-        <Card className="rounded-2xl shadow-md border-slate-200/60 bg-white">
-          <CardHeader className="bg-gradient-to-br from-slate-50 to-rose-50/20 rounded-t-2xl border-b">
-            <CardTitle className="text-2xl font-semibold text-center text-slate-900">Booking Details</CardTitle>
-          </CardHeader>
-          <CardContent className="bg-white rounded-b-2xl">
+        <div className={`${laf.card} ${laf.cardInner} transform transition hover:-translate-y-1`}>
+          <div className={laf.cardPad}>
             <form onSubmit={handleSubmit(onSubmit)} className={`space-y-6 ${isSubmitting ? 'pointer-events-none opacity-60' : ''}`}>
               <div className="grid md:grid-cols-2 gap-8">
                 {/* Left Column - Booking Details */}
@@ -606,71 +799,126 @@ export function BookingForm({ defaultBarberId }: BookingFormProps) {
                     Appointment Details
                   </h3>
                   
-                  {/* Plan Selection */}
-                  <div>
-                    <Label htmlFor="plan" className="text-sm font-medium text-zinc-700 mb-2 block">
-                      Select Plan *
-                    </Label>
-                    <div className="space-y-2">
-                      {PLANS.map((plan) => {
-                        const isSelected = selectedPlan === plan.id;
-                        const isTrial = plan.id === "trial";
-                        return (
-                          <label
-                            key={plan.id}
-                            className={`flex items-center space-x-3 p-3 rounded-xl border transition-all duration-200 cursor-pointer ${
-                              isSelected
-                                ? isTrial
-                                  ? "bg-amber-50/80 border-amber-300 shadow-sm"
-                                  : "bg-rose-50/50 border-rose-300 shadow-sm"
-                                : "bg-white border-slate-200 hover:border-rose-200 hover:bg-rose-50/30"
-                            }`}
-                          >
-                            <input
-                              type="radio"
-                              value={plan.id}
-                              {...register("plan")}
-                              className="text-rose-600 focus:ring-rose-500"
-                            />
-                            <div className="flex-1">
-                              <div className="flex items-center gap-2">
-                                <span className="text-sm font-medium text-slate-900">{plan.name}</span>
-                                {isTrial && (
-                                  <span className="text-[10px] font-semibold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">
-                                    FREE
+                  {/* Plan Selection - Hidden for second-cut, show single product card instead */}
+                  {isSecondCut ? (
+                    <div>
+                      <Label className="text-sm font-medium text-zinc-700 mb-2 block">
+                        Your Promo
+                      </Label>
+                      <div className="p-4 rounded-xl border-2 border-rose-300 bg-rose-50/50 shadow-sm">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-base font-semibold text-slate-900">{PRICING.secondCut10.label}</span>
+                          <span className="text-[10px] font-semibold text-rose-700 bg-rose-100 px-2 py-0.5 rounded-full">
+                            PROMO
+                          </span>
+                        </div>
+                        <p className="text-sm text-slate-600">
+                          Shop cut, 30 min
+                        </p>
+                      </div>
+                    </div>
+                  ) : !isMembershipIncluded ? (
+                    <div>
+                      <Label htmlFor="plan" className="text-sm font-medium text-zinc-700 mb-2 block">
+                        Select Plan *
+                      </Label>
+                      <div className="space-y-2">
+                        {availablePlans.map((plan) => {
+                          const isSelected = selectedPlan === plan.id;
+                          const isTrial = plan.id === "trial";
+                          return (
+                            <label
+                              key={plan.id}
+                              className={`flex items-center space-x-3 p-3 rounded-xl border transition-all duration-200 cursor-pointer ${
+                                isSelected
+                                  ? isTrial
+                                    ? "bg-amber-50/80 border-amber-300 shadow-sm"
+                                    : "bg-rose-50/50 border-rose-300 shadow-sm"
+                                  : "bg-white border-slate-200 hover:border-rose-200 hover:bg-rose-50/30"
+                              }`}
+                            >
+                              <input
+                                type="radio"
+                                value={plan.id}
+                                {...register("plan")}
+                                className="text-rose-600 focus:ring-rose-500"
+                              />
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-sm font-medium text-slate-900">{plan.name}</span>
+                                  {isTrial && (
+                                    <span className="text-[10px] font-semibold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">
+                                      FREE
+                                    </span>
+                                  )}
+                                </div>
+                                {plan.id === "standard" ? (
+                                  <>
+                                    <p className="text-sm text-zinc-500">{formatPrice(MEMBERSHIP_STANDARD_PRICE_CENTS)}/month (Shop)</p>
+                                    <p className="mt-1 text-xs text-zinc-500">
+                                      Up to 2 shop cuts per month — best if you can come to the barber.
+                                    </p>
+                                  </>
+                                ) : plan.id === "deluxe" ? (
+                                  <>
+                                    <p className="text-sm text-zinc-500">{formatPrice(PRICING.deluxeCut.cents)}/month (Home)</p>
+                                    <p className="mt-1 text-xs text-zinc-500">
+                                      Up to 2 home visits per month — we come to you.
+                                    </p>
+                                  </>
+                                ) : (
+                                  <span className="text-xs text-slate-600">
+                                    {formatPrice(PRICING.freeTrial.cents)}/month ({plan.isHome ? "Home" : "Shop"})
                                   </span>
                                 )}
                               </div>
-                              <span className="text-xs text-slate-600">
-                                ${(plan.priceMonthlyCents/100).toFixed(2)}/month ({plan.isHome ? "Home" : "Shop"})
-                              </span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                      
+                      {/* Trial hint */}
+                      {selectedPlan === "trial" && (
+                        <div className="mt-2 p-3 bg-amber-50/80 border border-amber-200/50 rounded-xl shadow-sm">
+                          <div className="flex items-center gap-2">
+                            <Sparkles className="w-4 h-4 text-amber-600" />
+                            <div>
+                              <p className="text-sm font-medium text-amber-900">
+                                First cut free
+                              </p>
+                              <p className="text-xs text-amber-700 mt-0.5">
+                                No payment needed. One free trial per person to try our service!
+                              </p>
                             </div>
-                          </label>
-                        );
-                      })}
-                    </div>
-                    
-                    {/* Trial hint */}
-                    {selectedPlan === "trial" && (
-                      <div className="mt-2 p-3 bg-amber-50/80 border border-amber-200/50 rounded-xl shadow-sm">
-                        <div className="flex items-center gap-2">
-                          <Sparkles className="w-4 h-4 text-amber-600" />
-                          <div>
-                            <p className="text-sm font-medium text-amber-900">
-                              First cut free
-                            </p>
-                            <p className="text-xs text-amber-700 mt-0.5">
-                              No payment needed. One free trial per person to try our service!
-                            </p>
                           </div>
                         </div>
-                      </div>
-                    )}
-                    
-                    {errors.plan && (
-                      <p className="text-sm text-red-600 mt-1">{errors.plan.message}</p>
-                    )}
-                  </div>
+                      )}
+                      
+                      {errors.plan && (
+                        <p className="text-sm text-red-600 mt-1">{errors.plan.message}</p>
+                      )}
+                    </div>
+                  ) : null}
+
+                  {/* Payment Method Selection: Only for $10 cuts (DISCOUNT_SECOND or ONE_OFF with standard plan) */}
+                  {(isSecondCut || (bookingState?.type === "ONE_OFF" && selectedPlan === "standard")) && (
+                    <div className="mt-4 space-y-2">
+                      <Label className="text-sm font-medium text-zinc-700 mb-2 block">Payment Method</Label>
+                      <label className="flex items-start gap-3 rounded-xl border px-3 py-2 cursor-pointer hover:border-zinc-300">
+                          <input
+                            type="radio"
+                          name="paymentMethod"
+                          value="STRIPE"
+                          checked
+                            className="mt-1"
+                          />
+                          <div className="text-sm">
+                          <div className="font-semibold">Pay with Card (Stripe)</div>
+                          <div className="text-zinc-600">Secure card payment</div>
+                          </div>
+                        </label>
+                    </div>
+                  )}
 
                   {/* Mini Calendar Strip */}
                   {selectedBarber && weeklySummary && (
@@ -689,9 +937,9 @@ export function BookingForm({ defaultBarberId }: BookingFormProps) {
                               onClick={() => setValue("selectedDate", day.date)}
                               className={`relative flex flex-col items-center justify-center px-3 py-2 rounded-xl border transition-all duration-200 min-w-[70px] ${
                                 isSelected
-                                  ? "bg-rose-100 border-rose-300 shadow-sm"
+                                  ? "bg-red-600 text-white border-red-600 shadow-sm"
                                   : hasAvailability
-                                  ? "bg-white border-rose-200/50 hover:bg-rose-50 hover:border-rose-200"
+                                  ? "bg-white border-zinc-200 hover:bg-zinc-100 focus:ring-2 focus:ring-zinc-900/15"
                                   : "bg-slate-50 border-slate-200/30 opacity-60"
                               } ${day.isToday ? "ring-2 ring-rose-300/50" : ""}`}
                             >
@@ -701,7 +949,7 @@ export function BookingForm({ defaultBarberId }: BookingFormProps) {
                               <span className={`text-xs font-medium ${isSelected ? "text-rose-900" : hasAvailability ? "text-slate-700" : "text-slate-500"}`}>
                                 {day.dayName}
                               </span>
-                              <span className={`text-[10px] mt-0.5 ${isSelected ? "text-rose-700" : hasAvailability ? "text-slate-600" : "text-slate-400"}`}>
+                              <span className={`${laf.mono} text-[10px] mt-0.5 ${isSelected ? "text-rose-700" : hasAvailability ? "text-slate-600" : "text-slate-400"}`}>
                                 {/* Extract day number directly from YYYY-MM-DD */}
                                 {day.date.split("-")[2]}
                               </span>
@@ -725,7 +973,7 @@ export function BookingForm({ defaultBarberId }: BookingFormProps) {
                       type="date"
                       {...register("selectedDate")}
                       min={new Date().toISOString().split('T')[0]}
-                      className="rounded-xl border-slate-200 focus:border-rose-300 focus:ring-rose-200"
+                      className={laf.input}
                     />
                     {errors.selectedDate && (
                       <p className="text-sm text-red-600 mt-1">{errors.selectedDate.message}</p>
@@ -745,7 +993,7 @@ export function BookingForm({ defaultBarberId }: BookingFormProps) {
                   </div>
 
                   {/* Next Openings Banner */}
-                  {selectedBarber && selectedPlan && !loadingOpenings && nextOpenings.length > 0 && (
+                  {selectedBarber && (isSecondCut || selectedPlan) && !loadingOpenings && nextOpenings.length > 0 && (
                     <div className="p-3 bg-gradient-to-r from-rose-50/60 to-amber-50/40 border border-rose-200/50 rounded-xl shadow-sm">
                       <div className="flex items-center gap-2 mb-2">
                         <Sparkles className="w-4 h-4 text-rose-600" />
@@ -771,7 +1019,7 @@ export function BookingForm({ defaultBarberId }: BookingFormProps) {
                     </div>
                   )}
 
-                  {selectedBarber && selectedPlan && !loadingOpenings && nextOpenings.length === 0 && (
+                  {selectedBarber && (isSecondCut || selectedPlan) && !loadingOpenings && nextOpenings.length === 0 && (
                     <div className="p-3 bg-slate-50/60 border border-slate-200/50 rounded-xl">
                       <p className="text-xs text-slate-600 italic">
                         This stylist has no upcoming openings right now. Try another date or stylist.
@@ -931,7 +1179,7 @@ export function BookingForm({ defaultBarberId }: BookingFormProps) {
                       <Input
                         {...register("location")}
                         placeholder="Enter your home address"
-                        className="rounded-xl border-slate-200 focus:border-rose-300 focus:ring-rose-200"
+                        className={laf.input}
                       />
                       {errors.location && (
                         <p className="text-sm text-red-600 mt-1">{errors.location.message}</p>
@@ -955,7 +1203,7 @@ export function BookingForm({ defaultBarberId }: BookingFormProps) {
                     <Input
                       {...register("customerName")}
                       placeholder="Enter your full name"
-                      className="rounded-xl border-slate-200 focus:border-rose-300 focus:ring-rose-200"
+                      className={laf.input}
                     />
                     {errors.customerName && (
                       <p className="text-sm text-red-600 mt-1">{errors.customerName.message}</p>
@@ -972,7 +1220,7 @@ export function BookingForm({ defaultBarberId }: BookingFormProps) {
                       {...register("customerEmail")}
                       placeholder="Enter your email"
                       disabled={!!session?.user?.email}
-                      className="rounded-xl border-slate-200 focus:border-rose-300 focus:ring-rose-200"
+                      className={laf.input}
                     />
                     {errors.customerEmail && (
                       <p className="text-sm text-red-600 mt-1">{errors.customerEmail.message}</p>
@@ -988,7 +1236,7 @@ export function BookingForm({ defaultBarberId }: BookingFormProps) {
                       type="tel"
                       {...register("customerPhone")}
                       placeholder="Enter your phone number"
-                      className="rounded-xl border-slate-200 focus:border-rose-300 focus:ring-rose-200"
+                      className={laf.input}
                     />
                     {errors.customerPhone && (
                       <p className="text-sm text-red-600 mt-1">{errors.customerPhone.message}</p>
@@ -1001,7 +1249,7 @@ export function BookingForm({ defaultBarberId }: BookingFormProps) {
                     </Label>
                     <textarea
                       {...register("notes")}
-                      className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-rose-200 focus:border-rose-300 transition-colors"
+                      className={laf.input}
                       rows={3}
                       placeholder="Any specific styling preferences or notes..."
                     />
@@ -1013,7 +1261,7 @@ export function BookingForm({ defaultBarberId }: BookingFormProps) {
               <div className="pt-6 pb-6 md:pb-0">
                 <Button
                   type="submit"
-                  disabled={isSubmitting || !session || (!isFreeTrial && !hasEnoughPoints)}
+                  disabled={isSubmitting || !session}
                   aria-busy={isSubmitting}
                   className="w-full rounded-xl bg-gradient-to-r from-rose-600 to-amber-600 hover:from-rose-700 hover:to-amber-700 text-white shadow-md hover:shadow-lg transition-all duration-150 ease-out active:scale-95 active:shadow-inner disabled:opacity-50 disabled:cursor-not-allowed"
                   size="lg"
@@ -1025,8 +1273,6 @@ export function BookingForm({ defaultBarberId }: BookingFormProps) {
                     </>
                   ) : !session ? (
                     "Sign In to Book"
-                  ) : !isFreeTrial && !hasEnoughPoints ? (
-                    "Insufficient Points"
                   ) : (
                     <>
                       <CheckCircle2 className="w-4 h-4 mr-2" />
@@ -1036,8 +1282,8 @@ export function BookingForm({ defaultBarberId }: BookingFormProps) {
                 </Button>
               </div>
             </form>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
 
         {/* Back to Plans */}
         <div className="text-center mt-8">
@@ -1052,4 +1298,3 @@ export function BookingForm({ defaultBarberId }: BookingFormProps) {
     </div>
   );
 }
-

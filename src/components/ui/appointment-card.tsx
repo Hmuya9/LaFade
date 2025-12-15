@@ -15,6 +15,12 @@ export interface AppointmentCardData {
     name: string;
     photo: string | null;
     city?: string | null;
+    email?: string;
+    phone?: string | null;
+  };
+  client?: {
+    email?: string;
+    phone?: string | null;
   };
   plan: string;
   startAt: string;
@@ -148,6 +154,25 @@ export function AppointmentCard({
             <div className="flex items-start gap-1.5 mb-2 text-sm text-slate-600">
               <MapPin className="w-4 h-4 text-slate-400 mt-0.5 flex-shrink-0" />
               <span className="line-clamp-2">{appointment.address}</span>
+            </div>
+          )}
+
+          {/* Barber Contact Info - Always show if barber exists */}
+          {appointment.barber && (
+            <div className="mt-2 pt-2 border-t border-slate-100 text-xs text-slate-600 space-y-1">
+              <p className="font-medium text-slate-700">Barber Contact:</p>
+              {appointment.barber.email ? (
+                <p>📧 {appointment.barber.email}</p>
+              ) : (
+                <p className="text-slate-400">📧 Email not set</p>
+              )}
+              {appointment.barber.phone ? (
+                <p>
+                  📞 <a href={`tel:${appointment.barber.phone}`} className="text-rose-600 hover:text-rose-700 underline">{appointment.barber.phone}</a>
+                </p>
+              ) : (
+                <p className="text-slate-400">📞 Phone not set (ask admin)</p>
+              )}
             </div>
           )}
 

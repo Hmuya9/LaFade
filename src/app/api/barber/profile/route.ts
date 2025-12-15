@@ -22,7 +22,7 @@ export async function GET() {
 
     const user = await prisma.user.findUnique({
       where: { email: session.user.email },
-      select: { id: true, role: true, city: true },
+      select: { id: true, role: true, city: true, phone: true },
     });
 
     if (!user || (user.role !== "BARBER" && user.role !== "OWNER")) {
@@ -34,6 +34,7 @@ export async function GET() {
 
     return NextResponse.json({
       city: user.city || null,
+      phone: user.phone || null,
     });
   } catch (error) {
     console.error("[api/barber/profile] GET Error:", error);
@@ -73,15 +74,20 @@ export async function PATCH(req: NextRequest) {
 
     const body = await req.json();
     const city = body.city?.trim() || null;
+    const phone = body.phone?.trim() || null;
 
     await prisma.user.update({
       where: { id: user.id },
-      data: { city },
+      data: { 
+        city,
+        phone,
+      },
     });
 
     return NextResponse.json({
       ok: true,
       city,
+      phone,
     });
   } catch (error) {
     console.error("[api/barber/profile] PATCH Error:", error);
@@ -91,4 +97,11 @@ export async function PATCH(req: NextRequest) {
     );
   }
 }
+
+
+
+
+
+
+
 

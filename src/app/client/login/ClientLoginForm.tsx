@@ -21,15 +21,12 @@ export function ClientLoginForm() {
       const res = await signIn("credentials", {
         email: email.trim().toLowerCase(),
         password,
-        redirect: false,
-        callbackUrl: "/booking",
+        redirect: true,
+        callbackUrl: "/account",
       });
 
-      if (res?.error) {
+      if ((res as any)?.error) {
         setError("Invalid email or password");
-      } else if (res?.ok) {
-        // Redirect manually on success
-        window.location.href = "/booking";
       }
     } catch (err: any) {
       console.error("[ClientLoginForm] Error:", err);

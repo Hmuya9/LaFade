@@ -47,7 +47,7 @@ export async function GET() {
     next7Days.setDate(next7Days.getDate() + 7);
     next7Days.setHours(23, 59, 59, 999);
 
-    // Fetch today's appointments
+    // Fetch today's appointments (including COMPLETED)
     const todayAppointments = await prisma.appointment.findMany({
       where: {
         barberId: barber.id,
@@ -56,10 +56,20 @@ export async function GET() {
           lte: todayEnd
         },
         status: {
-          in: ["BOOKED", "CONFIRMED"]
+          in: ["BOOKED", "CONFIRMED", "COMPLETED"]
         }
       },
-      include: {
+      select: {
+        id: true,
+        startAt: true,
+        endAt: true,
+        status: true,
+        type: true,
+        address: true,
+        notes: true,
+        isFree: true,
+        rating: true,
+        review: true,
         client: {
           select: {
             id: true,
@@ -72,7 +82,7 @@ export async function GET() {
       orderBy: { startAt: "asc" }
     });
 
-    // Fetch next 7 days appointments (excluding today)
+    // Fetch next 7 days appointments (excluding today, including COMPLETED)
     const next7Appointments = await prisma.appointment.findMany({
       where: {
         barberId: barber.id,
@@ -81,10 +91,20 @@ export async function GET() {
           lte: next7Days
         },
         status: {
-          in: ["BOOKED", "CONFIRMED"]
+          in: ["BOOKED", "CONFIRMED", "COMPLETED"]
         }
       },
-      include: {
+      select: {
+        id: true,
+        startAt: true,
+        endAt: true,
+        status: true,
+        type: true,
+        address: true,
+        notes: true,
+        isFree: true,
+        rating: true,
+        review: true,
         client: {
           select: {
             id: true,
@@ -121,7 +141,9 @@ export async function GET() {
         type: apt.type,
         address: apt.address,
         notes: apt.notes,
-        isFree: apt.isFree
+        isFree: apt.isFree,
+        rating: apt.rating,
+        review: apt.review
       };
     };
 

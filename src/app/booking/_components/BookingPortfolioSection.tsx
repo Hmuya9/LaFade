@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { laf } from "@/components/ui/lafadeStyles";
 
 type PortfolioPhoto = {
   id: string;
@@ -30,9 +30,7 @@ export function BookingPortfolioSection({ barberId }: BookingPortfolioSectionPro
 
         const res = await fetch(url);
         if (!res.ok) {
-          if (isMounted) {
-            setPhotos([]);
-          }
+          if (isMounted) setPhotos([]);
           return;
         }
 
@@ -51,25 +49,21 @@ export function BookingPortfolioSection({ barberId }: BookingPortfolioSectionPro
     };
   }, [barberId]);
 
-  if (!isLoading && photos.length === 0) {
-    // If there are no photos, quietly render nothing so the booking page
-    // doesn't look broken when portfolio is empty.
-    return null;
-  }
+  if (!isLoading && photos.length === 0) return null;
 
   return (
-    <Card className="rounded-2xl shadow-lg">
-      <CardHeader>
-        <div className="flex items-center justify-between gap-2">
+    <section className={`${laf.card} ${laf.cardInner}`}>
+      <div className={laf.cardPad}>
+        <div className="flex items-start justify-between gap-4">
           <div>
-            <CardTitle className="text-xl font-semibold">See the work</CardTitle>
-            <CardDescription className="text-sm">
-              Real cuts from your barber&apos;s portfolio.
-            </CardDescription>
+            <h2 className={laf.h2}>See the work</h2>
+            <p className={laf.sub}>Real cuts from your barber&apos;s portfolio.</p>
           </div>
+          <div className={`${laf.mono} text-xs text-zinc-500`}>{photos.length ? `${photos.length} shots` : ""}</div>
         </div>
-      </CardHeader>
-      <CardContent>
+
+        <div className={`${laf.divider} my-5`} />
+
         {isLoading ? (
           <p className="text-sm text-zinc-600">Loading photos...</p>
         ) : (
@@ -77,7 +71,7 @@ export function BookingPortfolioSection({ barberId }: BookingPortfolioSectionPro
             {photos.map((photo) => (
               <div
                 key={photo.id}
-                className="relative rounded-md overflow-hidden border bg-zinc-100"
+                className="relative overflow-hidden rounded-xl border border-zinc-200 bg-white"
               >
                 <img
                   src={photo.url}
@@ -89,8 +83,7 @@ export function BookingPortfolioSection({ barberId }: BookingPortfolioSectionPro
             ))}
           </div>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </section>
   );
 }
-

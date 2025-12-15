@@ -3,7 +3,6 @@ import type { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import { PrismaAdapter } from "@next-auth/prisma-adapter";
 import { prisma } from "./db";
-// Import centralized auth utilities
 import { verifyCredentials } from "./auth-utils";
 
 export const authOptions: NextAuthOptions = {
@@ -114,6 +113,10 @@ export const authOptions: NextAuthOptions = {
           token.email = user.email ?? null;
           token.name = user.name ?? null;
           token.role = (user as any)?.role ?? "CLIENT";
+          // Bubble up onboarding redirect hint if set in signIn callback
+          if ((user as any).redirectToOnboarding) {
+            (token as any).redirectToOnboarding = true;
+          }
         }
         
         // Ensure role always has a default value
@@ -138,6 +141,7 @@ export const authOptions: NextAuthOptions = {
           
           anyUser.id = anyToken.id ?? anyToken.userId ?? null;
           anyUser.role = (token.role as string) ?? "CLIENT";
+          anyUser.redirectToOnboarding = anyToken.redirectToOnboarding ?? false;
           
           // Preserve name from token if available, otherwise keep existing
           if (anyToken.name) {
@@ -158,10 +162,11 @@ export const authOptions: NextAuthOptions = {
       }
     },
     async redirect({ url, baseUrl }) {
-      // Keep redirects on same origin
+      // Simple safe redirect behavior (same-origin only)
+      // Onboarding is gated at the page level, not here
       if (url.startsWith("/")) return `${baseUrl}${url}`;
-      const urlObj = new URL(url);
-      if (urlObj.origin === baseUrl) return url;
+      const u = new URL(url);
+      if (u.origin === baseUrl) return url;
       return baseUrl;
     },
     async signIn({ user, account }) {

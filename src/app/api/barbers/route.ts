@@ -4,6 +4,12 @@ import { prisma } from "@/lib/db"
 export const runtime = "nodejs";
 export const dynamic = 'force-dynamic'
 
+// V1 Launch Safety: Only allow these two real barbers
+const REAL_BARBER_IDS = [
+  "cmihqddi20001vw3oyt77w4uv",
+  "cmj6jzd1j0000vw8ozlyw14o9",
+];
+
 /**
  * Get all barbers (users with role BARBER or OWNER).
  * Used by client booking page to show barber selection.
@@ -15,6 +21,7 @@ export async function GET() {
         role: {
           in: ["BARBER", "OWNER"],
         },
+        id: { in: REAL_BARBER_IDS },
         // Filter out placeholder "barber" user
         NOT: {
           name: "barber",

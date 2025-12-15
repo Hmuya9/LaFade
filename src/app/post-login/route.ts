@@ -17,11 +17,8 @@ export async function GET() {
     const role = (user as any).role || "CLIENT";
     const baseUrl = process.env.NEXTAUTH_URL || process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
     
-    if (role === "BARBER") {
+    if (role === "BARBER" || role === "OWNER") {
       return NextResponse.redirect(new URL("/barber", baseUrl));
-    }
-    if (role === "OWNER") {
-      return NextResponse.redirect(new URL("/admin/appointments", baseUrl));
     }
     // CLIENT → redirect to /account (their home/dashboard)
     return NextResponse.redirect(new URL("/account", baseUrl));
