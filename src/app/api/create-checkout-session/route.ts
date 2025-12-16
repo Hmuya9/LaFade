@@ -153,15 +153,19 @@ async function handleSubscriptionCheckout(planId: string, userId?: string) {
   }
 
   console.log("[create-checkout-session][SUBSCRIPTION][START] Incoming request", {
-    planId,
+    receivedPlanId: planId,
+    planIdType: typeof planId,
     userId,
     mode: "subscription",
   });
 
   if (!planId || typeof planId !== "string" || planId.trim() === "") {
     console.error(
-      "[create-checkout-session][SUBSCRIPTION] Missing or invalid planId for subscription:",
-      planId
+      "[create-checkout-session][SUBSCRIPTION][ERROR] Missing or invalid planId for subscription",
+      {
+        receivedPlanId: planId,
+        planIdType: typeof planId,
+      }
     );
     return NextResponse.json(
       {
@@ -186,14 +190,19 @@ async function handleSubscriptionCheckout(planId: string, userId?: string) {
 
   try {
     // Lookup the plan by its primary key
+    console.log("[create-checkout-session][SUBSCRIPTION][LOOKUP] Fetching plan from database", {
+      requestedPlanId: planId,
+    });
+    
     const plan = await prisma.plan.findUnique({
       where: { id: planId },
       select: { id: true, name: true, stripePriceId: true, priceMonthly: true },
     });
 
     if (!plan) {
-      console.error("[create-checkout-session][SUBSCRIPTION][ERROR] Plan not found for planId", {
-        requestedPlanId: planId,
+      console.error("[create-checkout-session][SUBSCRIPTION][ERROR] Plan not found", {
+        receivedPlanId: planId,
+        lookupResult: "null",
       });
       return NextResponse.json(
         {
@@ -204,10 +213,22 @@ async function handleSubscriptionCheckout(planId: string, userId?: string) {
       );
     }
 
+    console.log("[create-checkout-session][SUBSCRIPTION][RESOLVED] Plan found in database", {
+      receivedPlanId: planId,
+      resolvedPlanId: plan.id,
+      planName: plan.name,
+      stripePriceId: plan.stripePriceId,
+      stripePriceIdLength: plan.stripePriceId?.length,
+      priceMonthly: plan.priceMonthly,
+    });
+
     if (!plan.stripePriceId || plan.stripePriceId.trim() === "") {
-      console.error("[create-checkout-session][SUBSCRIPTION][ERROR] Plan is missing stripePriceId", {
-        planId: plan.id,
+      console.error("[create-checkout-session][SUBSCRIPTION][ERROR] Plan missing stripePriceId", {
+        receivedPlanId: planId,
+        resolvedPlanId: plan.id,
         planName: plan.name,
+        stripePriceId: plan.stripePriceId,
+        stripePriceIdPresent: !!plan.stripePriceId,
       });
       return NextResponse.json(
         {
@@ -217,13 +238,6 @@ async function handleSubscriptionCheckout(planId: string, userId?: string) {
         { status: 400 }
       );
     }
-
-    console.log("[create-checkout-session][SUBSCRIPTION][SUCCESS] Plan found", {
-      planId: plan.id,
-      planName: plan.name,
-      stripePriceId: plan.stripePriceId,
-      priceMonthly: plan.priceMonthly,
-    });
 
     // 🔑 IMPORTANT: pass plan + user metadata so webhook/sync can resolve it
     const metadata: Record<string, string> = {
@@ -265,6 +279,15 @@ async function handleSubscriptionCheckout(planId: string, userId?: string) {
       );
     }
 
+    console.log("[create-checkout-session][SUBSCRIPTION][STRIPE] Creating checkout session", {
+      receivedPlanId: planId,
+      resolvedPlanId: plan.id,
+      planName: plan.name,
+      stripePriceId: plan.stripePriceId,
+      lineItems: [{ price: plan.stripePriceId, quantity: 1 }],
+      mode: "subscription",
+    });
+
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",
       payment_method_types: ["card"],
@@ -280,19 +303,23 @@ async function handleSubscriptionCheckout(planId: string, userId?: string) {
       metadata,
     });
 
-    console.log("[create-checkout-session][SUBSCRIPTION] Subscription session created:", {
+    console.log("[create-checkout-session][SUBSCRIPTION][SUCCESS] Session created", {
+      receivedPlanId: planId,
+      resolvedPlanId: plan.id,
+      stripePriceId: plan.stripePriceId,
       sessionId: session.id,
       url: session.url ? "present" : "missing",
     });
 
     return NextResponse.json({ url: session.url });
   } catch (stripeError: any) {
-    console.error("[create-checkout-session][SUBSCRIPTION] Stripe subscription error:", {
-      message: stripeError?.message,
-      type: stripeError?.type,
-      code: stripeError?.code,
-      planId,
+    console.error("[create-checkout-session][SUBSCRIPTION][ERROR] Stripe checkout failed", {
+      receivedPlanId: planId,
       userId,
+      stripeErrorMessage: stripeError?.message,
+      stripeErrorType: stripeError?.type,
+      stripeErrorCode: stripeError?.code,
+      stripeErrorStatus: stripeError?.statusCode,
       raw: process.env.NODE_ENV === "development" ? stripeError : undefined,
       stack: process.env.NODE_ENV === "development" ? stripeError?.stack : undefined,
     });
