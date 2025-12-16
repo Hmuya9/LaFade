@@ -61,34 +61,35 @@ export function PlansClient({ hasUsedTrial }: PlansClientProps) {
       return;
     }
     
-    // Wait for plans to load if they haven't yet
-    if (dbPlans.length === 0) {
-      console.log("[plans] Plans not loaded yet, waiting...");
-      // Try fetching again
+    // Ensure we have plans loaded - fetch if needed
+    let plansToUse = dbPlans;
+    if (plansToUse.length === 0) {
+      console.log("[plans] Plans not loaded yet, fetching...");
       try {
         const res = await fetch("/api/plans");
         if (res.ok) {
           const data = await res.json();
-          if (data?.plans) {
-            setDbPlans(data.plans);
+          if (data?.plans && data.plans.length > 0) {
+            plansToUse = data.plans;
+            setDbPlans(data.plans); // Update state for future clicks
             console.log("[plans] Fetched plans:", data.plans);
           }
         }
       } catch (err) {
         console.error("[plans] Failed to fetch plans:", err);
       }
-      
-      // If still empty, show error
-      if (dbPlans.length === 0) {
-        alert("Unable to load membership plans. Please refresh the page and try again.");
-        setLoading(false);
-        return;
-      }
+    }
+    
+    // If still empty, show error
+    if (plansToUse.length === 0) {
+      alert("Unable to load membership plans. Please refresh the page and try again.");
+      setLoading(false);
+      return;
     }
     
     // Find the plan in the database by matching planId ("standard" | "deluxe") to plan name.
     // This mapping is client-side only; the server resolves by primary key (plan.id).
-    const dbPlan = dbPlans.find(p =>
+    const dbPlan = plansToUse.find(p =>
       planId === "standard" && p.name.toLowerCase().includes("standard") ||
       planId === "deluxe" && p.name.toLowerCase().includes("deluxe")
     );
