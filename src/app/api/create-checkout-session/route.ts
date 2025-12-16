@@ -16,9 +16,9 @@
  *    - Sets metadata.plan and other appointment fields
  * 
  * 3. Subscription from /plans (Standard/Deluxe memberships):
- *    - Request body: { priceId: "<stripe_price_id>" }
+ *    - Request body: { planId: "<plan_id_from_db>" }
  *    - Creates subscription session (mode: "subscription")
- *    - Requires priceId to be a valid Stripe price ID from env vars
+ *    - Resolves the plan from the database by id and uses plan.stripePriceId
  *    - Does NOT include appointmentData
  */
 
@@ -60,7 +60,7 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const { 
-      priceId, 
+      planId,
       appointmentData 
     } = body;
 
@@ -74,8 +74,8 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Branch 1: Subscription from /plans (has priceId, no appointmentData)
-    if (priceId && !appointmentData) {
+    // Branch 1: Subscription from /plans (has planId, no appointmentData)
+    if (planId && !appointmentData) {
       // Get current user session to include userId in metadata (optional but helpful)
       const session = await auth();
       const user = session?.user?.email
@@ -110,7 +110,7 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      return await handleSubscriptionCheckout(priceId, user?.id);
+      return await handleSubscriptionCheckout(planId, user?.id);
     }
 
     // Branch 2: Appointment booking (has appointmentData, may or may not have priceId)
@@ -120,7 +120,7 @@ export async function POST(request: NextRequest) {
 
     // Neither branch matched - invalid request
     return NextResponse.json(
-      { error: "Either priceId (for subscriptions) or appointmentData (for bookings) is required" },
+      { error: "Either planId (for subscriptions) or appointmentData (for bookings) is required" },
       { status: 400 }
     );
   } catch (error) {
@@ -129,9 +129,11 @@ export async function POST(request: NextRequest) {
 }
 
 /**
- * Handle subscription checkout from /plans page
+ * Handle subscription checkout from /plans page.
+ * Resolves the plan from the database by its primary key (planId)
+ * and uses plan.stripePriceId for the Stripe price.
  */
-async function handleSubscriptionCheckout(priceId: string, userId?: string) {
+async function handleSubscriptionCheckout(planId: string, userId?: string) {
   // DEBUG: log which key & account this server is actually using
   const rawKey = process.env.STRIPE_SECRET_KEY || "";
   console.log("[stripe-debug] key prefix/suffix", {
@@ -151,20 +153,20 @@ async function handleSubscriptionCheckout(priceId: string, userId?: string) {
   }
 
   console.log("[create-checkout-session][SUBSCRIPTION][START] Incoming request", {
-    priceId,
+    planId,
     userId,
     mode: "subscription",
   });
 
-  if (!priceId || typeof priceId !== "string" || priceId.trim() === "") {
+  if (!planId || typeof planId !== "string" || planId.trim() === "") {
     console.error(
-      "[create-checkout-session][SUBSCRIPTION] Missing or invalid priceId for subscription:",
-      priceId
+      "[create-checkout-session][SUBSCRIPTION] Missing or invalid planId for subscription:",
+      planId
     );
     return NextResponse.json(
       {
-        error: "Stripe price ID is not configured for this subscription plan",
-        code: "MISSING_SUB_PRICE",
+        error: "Subscription plan is not specified.",
+        code: "MISSING_PLAN_ID",
       },
       { status: 400 }
     );
@@ -183,38 +185,34 @@ async function handleSubscriptionCheckout(priceId: string, userId?: string) {
   }
 
   try {
-    // Log all plans in database BEFORE lookup
-    const allPlans = await prisma.plan.findMany({
-      select: { id: true, name: true, stripePriceId: true, priceMonthly: true },
-      orderBy: { name: "asc" },
-    });
-    console.log("[create-checkout-session][SUBSCRIPTION][DB_STATE] All plans in database:", {
-      totalPlans: allPlans.length,
-      plans: allPlans.map(p => ({
-        id: p.id,
-        name: p.name,
-        stripePriceId: p.stripePriceId,
-        priceMonthly: p.priceMonthly,
-      })),
-    });
-
-    // Find plan by priceId to include planId in metadata (🔑 IMPORTANT for webhook/sync resolution)
-    console.log("[create-checkout-session][SUBSCRIPTION][LOOKUP] Searching for plan with stripePriceId:", priceId);
+    // Lookup the plan by its primary key
     const plan = await prisma.plan.findUnique({
-      where: { stripePriceId: priceId },
-      select: { id: true, name: true },
+      where: { id: planId },
+      select: { id: true, name: true, stripePriceId: true, priceMonthly: true },
     });
 
     if (!plan) {
-      console.error("[create-checkout-session][SUBSCRIPTION][ERROR] Plan not found for priceId", {
-        requestedPriceId: priceId,
-        availablePriceIds: allPlans.map(p => p.stripePriceId),
-        availablePlans: allPlans.map(p => ({ name: p.name, stripePriceId: p.stripePriceId })),
+      console.error("[create-checkout-session][SUBSCRIPTION][ERROR] Plan not found for planId", {
+        requestedPlanId: planId,
       });
       return NextResponse.json(
         {
-          error: "Plan not found for this price ID. Please try again or contact support if this persists.",
+          error: "Subscription plan not found. Please try a different plan or contact support.",
           code: "PLAN_NOT_FOUND",
+        },
+        { status: 400 }
+      );
+    }
+
+    if (!plan.stripePriceId || plan.stripePriceId.trim() === "") {
+      console.error("[create-checkout-session][SUBSCRIPTION][ERROR] Plan is missing stripePriceId", {
+        planId: plan.id,
+        planName: plan.name,
+      });
+      return NextResponse.json(
+        {
+          error: "Stripe price ID is not configured for this subscription plan",
+          code: "MISSING_SUB_PRICE",
         },
         { status: 400 }
       );
@@ -223,7 +221,8 @@ async function handleSubscriptionCheckout(priceId: string, userId?: string) {
     console.log("[create-checkout-session][SUBSCRIPTION][SUCCESS] Plan found", {
       planId: plan.id,
       planName: plan.name,
-      stripePriceId: priceId,
+      stripePriceId: plan.stripePriceId,
+      priceMonthly: plan.priceMonthly,
     });
 
     // 🔑 IMPORTANT: pass plan + user metadata so webhook/sync can resolve it
@@ -244,9 +243,8 @@ async function handleSubscriptionCheckout(priceId: string, userId?: string) {
     }
 
     console.log("[create-checkout-session][SUBSCRIPTION] Creating session with metadata", {
-      priceIdFromRequest: priceId,
-      userId,
       planId: plan.id,
+      userId,
       planName: plan.name,
       metadata,
       successUrl: `${process.env.NEXT_PUBLIC_APP_URL}/account?session_id={CHECKOUT_SESSION_ID}`,
@@ -272,7 +270,7 @@ async function handleSubscriptionCheckout(priceId: string, userId?: string) {
       payment_method_types: ["card"],
       line_items: [
         {
-          price: priceId,
+          price: plan.stripePriceId,
           quantity: 1,
         },
       ],
@@ -293,7 +291,7 @@ async function handleSubscriptionCheckout(priceId: string, userId?: string) {
       message: stripeError?.message,
       type: stripeError?.type,
       code: stripeError?.code,
-      priceId,
+      planId,
       userId,
       raw: process.env.NODE_ENV === "development" ? stripeError : undefined,
       stack: process.env.NODE_ENV === "development" ? stripeError?.stack : undefined,

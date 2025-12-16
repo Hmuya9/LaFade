@@ -61,41 +61,34 @@ export function PlansClient({ hasUsedTrial }: PlansClientProps) {
       return;
     }
     
-    // Find the plan in the database by matching planId to plan name
-    // planId is "standard" or "deluxe", we need to find the matching plan in dbPlans
-    const dbPlan = dbPlans.find(p => 
-      planId === "standard" && (p.name.toLowerCase() === "standard" || p.name.toLowerCase().includes("standard")) ||
-      planId === "deluxe" && (p.name.toLowerCase() === "deluxe" || p.name.toLowerCase().includes("deluxe"))
+    // Find the plan in the database by matching planId ("standard" | "deluxe") to plan name.
+    // This mapping is client-side only; the server resolves by primary key (plan.id).
+    const dbPlan = dbPlans.find(p =>
+      planId === "standard" && p.name.toLowerCase().includes("standard") ||
+      planId === "deluxe" && p.name.toLowerCase().includes("deluxe")
     );
 
-    // Fallback to PRICING config if database plan not found (for backward compatibility)
-    const priceId = dbPlan?.stripePriceId || (
-      planId === "standard"
-        ? PRICING.standardCut.stripePriceId
-        : PRICING.deluxeCut.stripePriceId
-    );
-
-    console.log("[plans] Starting subscription checkout", {
-      planId,
-      priceId,
-      dbPlan: dbPlan ? { name: dbPlan.name, stripePriceId: dbPlan.stripePriceId } : null,
-      fallbackUsed: !dbPlan,
-    });
-    
-    if (!priceId) {
+    if (!dbPlan) {
       alert(
-        "We couldn't start your checkout: Stripe price ID is not configured for this subscription plan. Please contact support."
+        "We couldn't find this membership plan in our system. Please try again or contact support."
       );
       setLoading(false);
       return;
     }
+
+    console.log("[plans] Starting subscription checkout", {
+      planIdConfig: planId,
+      planIdDb: dbPlan.id,
+      planName: dbPlan.name,
+      stripePriceIdPresent: !!dbPlan.stripePriceId,
+    });
     
     // Use Stripe checkout for subscriptions
     try {
       const response = await fetch("/api/create-checkout-session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ priceId }),
+        body: JSON.stringify({ planId: dbPlan.id }),
       });
       
       if (!response.ok) {

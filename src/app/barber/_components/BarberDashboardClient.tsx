@@ -13,6 +13,7 @@ import { WeeklyScheduleCalendarWrapper } from "./WeeklyScheduleCalendarWrapper";
 import { BarberCityForm } from "./BarberCityForm";
 import { MetricCard } from "@/components/MetricCard";
 import { TimeRangeClient } from "@/components/TimeRangeClient";
+import { Users, Scissors, TrendingUp, CalendarDays, DollarSign } from "lucide-react";
 
 type Appointment = {
   id: string;
@@ -124,27 +125,27 @@ export function BarberDashboardClient({
             <MetricCard
               title="Active Members"
               value={metricsLoading ? "—" : (metrics?.activeMembers ?? 0)}
-              icon="👥"
+              icon={<Users className="h-5 w-5 text-zinc-500" />}
             />
             <MetricCard
               title="Free Cuts Given"
               value={metricsLoading ? "—" : (metrics?.freeCutsGiven ?? 0)}
-              icon="✂️"
+              icon={<Scissors className="h-5 w-5 text-zinc-500" />}
             />
             <MetricCard
               title="Free → Member Conversion"
               value={metricsLoading ? "—" : (metrics ? formatPercentage(metrics.conversionRate) : "0%")}
-              icon="📈"
+              icon={<TrendingUp className="h-5 w-5 text-zinc-500" />}
             />
             <MetricCard
               title="This Week&apos;s Cuts"
               value={metricsLoading ? "—" : (metrics?.utilizationThisWeek ?? 0)}
-              icon="📅"
+              icon={<CalendarDays className="h-5 w-5 text-zinc-500" />}
             />
             <MetricCard
               title="Est. Monthly Earnings"
               value={metricsLoading ? "—" : (metrics ? `${formatCurrency(metrics.monthlyEarningsCents)} / month` : "$0.00 / month")}
-              icon="💰"
+              icon={<DollarSign className="h-5 w-5 text-zinc-500" />}
             />
           </div>
         </section>
