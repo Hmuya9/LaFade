@@ -67,7 +67,7 @@ export async function POST(request: NextRequest) {
     // Log incoming request for debugging
     if (process.env.NODE_ENV === "development") {
       console.log("[create-checkout-session] Incoming request:", {
-        hasPriceId: !!priceId,
+        hasPlanId: !!planId,
         hasAppointmentData: !!appointmentData,
         appointmentKind: appointmentData?.kind,
         appointmentPlan: appointmentData?.plan,
