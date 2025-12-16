@@ -61,6 +61,31 @@ export function PlansClient({ hasUsedTrial }: PlansClientProps) {
       return;
     }
     
+    // Wait for plans to load if they haven't yet
+    if (dbPlans.length === 0) {
+      console.log("[plans] Plans not loaded yet, waiting...");
+      // Try fetching again
+      try {
+        const res = await fetch("/api/plans");
+        if (res.ok) {
+          const data = await res.json();
+          if (data?.plans) {
+            setDbPlans(data.plans);
+            console.log("[plans] Fetched plans:", data.plans);
+          }
+        }
+      } catch (err) {
+        console.error("[plans] Failed to fetch plans:", err);
+      }
+      
+      // If still empty, show error
+      if (dbPlans.length === 0) {
+        alert("Unable to load membership plans. Please refresh the page and try again.");
+        setLoading(false);
+        return;
+      }
+    }
+    
     // Find the plan in the database by matching planId ("standard" | "deluxe") to plan name.
     // This mapping is client-side only; the server resolves by primary key (plan.id).
     const dbPlan = dbPlans.find(p =>
@@ -69,6 +94,10 @@ export function PlansClient({ hasUsedTrial }: PlansClientProps) {
     );
 
     if (!dbPlan) {
+      console.error("[plans] Plan not found in database", {
+        requestedPlanId: planId,
+        availablePlans: dbPlans.map(p => ({ id: p.id, name: p.name })),
+      });
       alert(
         "We couldn't find this membership plan in our system. Please try again or contact support."
       );
@@ -80,6 +109,7 @@ export function PlansClient({ hasUsedTrial }: PlansClientProps) {
       planIdConfig: planId,
       planIdDb: dbPlan.id,
       planName: dbPlan.name,
+      stripePriceId: dbPlan.stripePriceId,
       stripePriceIdPresent: !!dbPlan.stripePriceId,
     });
     
