@@ -1,6 +1,4 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
-import { auth } from "@/lib/auth";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { PLANS } from "@/config/plans";
@@ -9,19 +7,9 @@ import { TestimonialsSection } from "./_components/TestimonialsSection";
 import { PRICING, getPricingByPlanId, formatPrice } from "@/lib/pricing";
 
 export default async function Home() {
-  // Check if user is logged in and redirect based on role
-  const session = await auth();
-  
-  if (session?.user) {
-    const role = (session.user as any)?.role;
-    if (role === "CLIENT") {
-      redirect("/account");
-    } else if (role === "BARBER") {
-      redirect("/barber");
-    } else if (role === "OWNER") {
-      redirect("/admin/appointments");
-    }
-  }
+  // Home page is public - no redirects
+  // Users can navigate to their dashboards via links or middleware will handle it
+  // Removing server-side redirects prevents Safari 404 issues
   return (
     <main className="min-h-screen bg-zinc-50">
       {/* Hero Section */}

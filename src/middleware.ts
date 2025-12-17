@@ -83,8 +83,14 @@ export async function middleware(req: NextRequest) {
     pathname.startsWith("/client/login") ||
     pathname.startsWith("/barber/login");
 
+  // Early return for public routes - no auth checks, no redirects
+  // This is critical for / to work correctly in all browsers
+  if (isPublic) {
+    return NextResponse.next();
+  }
+
   // Not logged in: block protected pages
-  if (!token && !isPublic && !isAuthRoute) {
+  if (!token && !isAuthRoute) {
     const url = req.nextUrl.clone();
     url.pathname = "/login";
     url.searchParams.set("from", pathname);
