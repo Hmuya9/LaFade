@@ -1,4 +1,3 @@
-import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getClientFunnelForUser } from "@/lib/client-funnel";
@@ -7,42 +6,22 @@ import { FreeCutOnboardingClient } from "./FreeCutOnboardingClient";
 export const dynamic = "force-dynamic";
 
 export default async function FreeCutOnboardingPage() {
+  // Onboarding page is public - no server-side redirects
+  // Auth checks and redirects happen client-side in FreeCutOnboardingClient
+  // This prevents Safari redirect loops
   const session = await auth();
+  const user = session?.user?.email
+    ? await prisma.user.findUnique({
+        where: { email: session.user.email },
+        select: {
+          id: true,
+          role: true,
+          hasAnsweredFreeCutQuestion: true,
+        },
+      })
+    : null;
 
-  if (!session?.user?.email) {
-    redirect("/login");
-  }
-
-  const user = await prisma.user.findUnique({
-    where: { email: session.user.email },
-    select: {
-      id: true,
-      role: true,
-      hasAnsweredFreeCutQuestion: true,
-    },
-  });
-
-  if (!user) {
-    redirect("/login");
-  }
-
-  // Only CLIENTs should ever see this
-  if (user.role !== "CLIENT") {
-    if (user.role === "BARBER") {
-      redirect("/barber");
-    }
-    redirect("/admin/appointments");
-  }
-
-  if (user.hasAnsweredFreeCutQuestion) {
-    redirect("/account");
-  }
-
-  const funnel = await getClientFunnelForUser(user.id);
-
-  if (funnel.stage === "MEMBER") {
-    redirect("/account");
-  }
+  const funnel = user ? await getClientFunnelForUser(user.id) : null;
 
   return <FreeCutOnboardingClient />;
 }

@@ -1,4 +1,3 @@
-import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { env } from "@/lib/env";
@@ -55,64 +54,56 @@ async function getDefaultBarberId(): Promise<string | undefined> {
 export const dynamic = 'force-dynamic';
 
 export default async function BookingPage() {
+  // Booking page is public - no server-side redirects
+  // Auth checks happen client-side in BookingForm component
+  // This prevents Safari redirect loops
   const session = await auth();
+  const user = session?.user?.email
+    ? await prisma.user.findUnique({
+        where: { email: session.user.email },
+        select: {
+          id: true,
+          role: true,
+        },
+      })
+    : null;
 
-  if (!session?.user?.email) {
-    const url = new URL("/login", process.env.NEXTAUTH_URL || "http://localhost:3000");
-    url.searchParams.set("callbackUrl", "/booking");
-    redirect(url.toString());
-  }
+  // Query DB for funnel truth (only if user is logged in)
+  const hasFreeCutBookedOrCompleted = user
+    ? await prisma.appointment.findFirst({
+        where: {
+          clientId: user.id,
+          kind: "TRIAL_FREE",
+          status: { not: "CANCELED" },
+        },
+      }).then(appt => !!appt)
+    : false;
 
-  const user = await prisma.user.findUnique({
-    where: { email: session.user.email },
-    select: {
-      id: true,
-      role: true,
-    },
-  });
-
-  if (!user) {
-    redirect("/login");
-  }
-
-  // Redirect non-CLIENT users
-  if (user.role !== "CLIENT") {
-    if (user.role === "BARBER") {
-      redirect("/barber");
-    }
-    redirect("/admin/appointments");
-  }
-
-  // Query DB for funnel truth
-  const hasFreeCutBookedOrCompleted = await prisma.appointment.findFirst({
-    where: {
-      clientId: user.id,
-      kind: "TRIAL_FREE",
-      status: { not: "CANCELED" },
-    },
-  }).then(appt => !!appt);
-
-  const hasSecondCutBookedOrCompleted = await prisma.appointment.findFirst({
-    where: {
-      clientId: user.id,
-      kind: "DISCOUNT_SECOND",
-      status: { not: "CANCELED" },
-    },
-  }).then(appt => !!appt);
+  const hasSecondCutBookedOrCompleted = user
+    ? await prisma.appointment.findFirst({
+        where: {
+          clientId: user.id,
+          kind: "DISCOUNT_SECOND",
+          status: { not: "CANCELED" },
+        },
+      }).then(appt => !!appt)
+    : false;
 
   // Check for active membership (Subscription with ACTIVE or TRIAL status)
-  const activeSubscription = await prisma.subscription.findFirst({
-    where: {
-      userId: user.id,
-      status: { in: ["ACTIVE", "TRIAL"] },
-    },
-    include: {
-      plan: true,
-    },
-    orderBy: {
-      startDate: "desc",
-    },
-  });
+  const activeSubscription = user
+    ? await prisma.subscription.findFirst({
+        where: {
+          userId: user.id,
+          status: { in: ["ACTIVE", "TRIAL"] },
+        },
+        include: {
+          plan: true,
+        },
+        orderBy: {
+          startDate: "desc",
+        },
+      })
+    : null;
 
   const hasActiveMembership = !!activeSubscription;
 
@@ -130,7 +121,7 @@ export default async function BookingPage() {
 
     const cutsUsed = await prisma.appointment.count({
       where: {
-        clientId: user.id,
+        clientId: user!.id,
         kind: "MEMBERSHIP_INCLUDED",
         status: { in: ["BOOKED", "COMPLETED", "CONFIRMED"] },
         startAt: {

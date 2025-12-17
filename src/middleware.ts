@@ -37,6 +37,8 @@ if (!AUTH_SECRET && process.env.NODE_ENV !== "test" && process.env.NODE_ENV !== 
 const publicRoutes = [
   "/",
   "/plans",
+  "/booking",
+  "/onboarding",
   "/login",
   "/signup",
   "/signin",
