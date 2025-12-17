@@ -627,10 +627,11 @@ export function BookingForm({ defaultBarberId, isSecondCut, bookingState, hasFre
 
   return (
     <div className={`${laf.page} ${laf.texture}`}>
-      <div className={laf.container}>
-        <header className="mb-8 text-center">
-          <div className="flex justify-between items-center mb-4">
-            <div></div>
+      {/* Mobile-first full-width container with responsive max-width */}
+      <div className="w-full px-4 py-8 sm:px-6 lg:px-8 max-w-5xl mx-auto">
+        <header className="mb-8">
+          <div className="flex flex-col gap-3 items-center sm:flex-row sm:items-center sm:justify-between mb-4">
+            <div className="hidden sm:block" />
             <h1 className={laf.h1}>
               {rescheduleId ? "Reschedule Your Cut" : "Book Your Cut"}
             </h1>
@@ -638,7 +639,7 @@ export function BookingForm({ defaultBarberId, isSecondCut, bookingState, hasFre
               <SignInButton />
             </div>
           </div>
-          <p className={laf.sub}>
+          <p className={`${laf.sub} text-center sm:text-left`}>
             {rescheduleId && rescheduleData ? (
               <>You&apos;re rescheduling a cut with <span className="font-semibold text-rose-600">{barbers.find(b => b.id === rescheduleData.barberId)?.name || "your stylist"}</span>. Pick a new time below.</>
             ) : (
@@ -788,10 +789,12 @@ export function BookingForm({ defaultBarberId, isSecondCut, bookingState, hasFre
           <BookingPortfolioSection barberId={defaultBarberId} />
         </div>
 
-        <div className={`${laf.card} ${laf.cardInner} transform transition hover:-translate-y-1`}>
+        {/* Main booking form card - full width on mobile */}
+        <div className={`${laf.card} ${laf.cardInner} w-full transform transition hover:-translate-y-1`}>
           <div className={laf.cardPad}>
             <form onSubmit={handleSubmit(onSubmit)} className={`space-y-6 ${isSubmitting ? 'pointer-events-none opacity-60' : ''}`}>
-              <div className="grid md:grid-cols-2 gap-8">
+              {/* Two-column layout on desktop, single column on mobile */}
+              <div className="grid grid-cols-1 gap-6 md:grid-cols-2 md:gap-8">
                 {/* Left Column - Booking Details */}
                 <div className="space-y-6">
                   <h3 className="text-xl font-semibold text-zinc-900 flex items-center gap-2">
@@ -1044,7 +1047,8 @@ export function BookingForm({ defaultBarberId, isSecondCut, bookingState, hasFre
                           </div>
                         )}
                         
-                        <div className="grid grid-cols-3 gap-2">
+                        {/* Time pills - 2 columns on small screens, 3 on larger */}
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                           {availableSlots.map((time) => (
                             <button
                               key={time}
