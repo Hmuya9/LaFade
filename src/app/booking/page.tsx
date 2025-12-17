@@ -110,7 +110,7 @@ export default async function BookingPage() {
   // Calculate membership usage (reuse logic from /account)
   let membershipUsage: { cutsAllowed: number; cutsUsed: number; cutsRemaining: number } | null = null;
 
-  if (activeSubscription && activeSubscription.plan?.cutsPerMonth && activeSubscription.plan.cutsPerMonth > 0) {
+  if (user && activeSubscription && activeSubscription.plan?.cutsPerMonth && activeSubscription.plan.cutsPerMonth > 0) {
     const cutsAllowed = activeSubscription.plan.cutsPerMonth;
     const periodStart = activeSubscription.startDate;
     const periodEnd = activeSubscription.renewsAt ?? (() => {
@@ -121,7 +121,7 @@ export default async function BookingPage() {
 
     const cutsUsed = await prisma.appointment.count({
       where: {
-        clientId: user!.id,
+        clientId: user.id,
         kind: "MEMBERSHIP_INCLUDED",
         status: { in: ["BOOKED", "COMPLETED", "CONFIRMED"] },
         startAt: {
