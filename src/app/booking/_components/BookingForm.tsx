@@ -45,7 +45,7 @@ import { BookingPortfolioSection } from "./BookingPortfolioSection";
 import { isFreeTestCut } from "@/lib/plan-utils";
 import { PRICING, formatPrice } from "@/lib/pricing";
 import type { BarberDaySummary } from "@/lib/barber-weekly-summary";
-import { formatTime12Hour } from "@/lib/time-utils";
+import { formatTime12Hour, parseLocalDateTimeToUTC, BUSINESS_TIMEZONE } from "@/lib/time-utils";
 import { getNext7Days, getNextDateForWeekday, formatDateShort, formatDateWithDay } from "@/lib/date-utils";
 import { TimeSlotsSkeleton } from "@/components/ui/time-slots-skeleton";
 import { laf } from "@/components/ui/lafadeStyles";
@@ -446,19 +446,23 @@ export function BookingForm({ defaultBarberId, isSecondCut, bookingState, hasFre
           headers['idempotency-key'] = idempotencyKey;
         }
 
-        // Convert selectedDate + selectedTime to UTC ISO string on client
-        // This ensures the time is interpreted in the user's browser timezone
-        const [year, month, day] = data.selectedDate.split('-').map(Number);
-        const [timePart, period] = data.selectedTime.split(" ");
-        const [hh, mm] = timePart.split(":");
-        let hour24 = parseInt(hh, 10);
-        if (period === "PM" && hour24 !== 12) hour24 += 12;
-        if (period === "AM" && hour24 === 12) hour24 = 0;
+        // Convert selectedDate + selectedTime to UTC ISO string
+        // IMPORTANT: Interpret date/time as America/Los_Angeles (business timezone)
+        const startAtUTCDate = parseLocalDateTimeToUTC(data.selectedDate, data.selectedTime);
+        const endAtUTCDate = new Date(startAtUTCDate.getTime() + 30 * 60 * 1000);
+        const startAtUTC = startAtUTCDate.toISOString();
+        const endAtUTC = endAtUTCDate.toISOString();
         
-        // Create Date in user's local timezone, then convert to UTC ISO string
-        const localDateTime = new Date(year, month - 1, day, hour24, parseInt(mm ?? "0", 10), 0, 0);
-        const startAtUTC = localDateTime.toISOString();
-        const endAtUTC = new Date(localDateTime.getTime() + 30 * 60 * 1000).toISOString();
+        // Log for debugging timezone conversion
+        if (process.env.NODE_ENV === "development") {
+          console.log("[BookingForm] Timezone conversion:", {
+            inputDate: data.selectedDate,
+            inputTime: data.selectedTime,
+            timezone: BUSINESS_TIMEZONE,
+            startAtUTC,
+            endAtUTC,
+          });
+        }
 
         const res = await fetch("/api/bookings", {
           method: "POST",
@@ -544,6 +548,10 @@ export function BookingForm({ defaultBarberId, isSecondCut, bookingState, hasFre
       }
 
       // Stripe payment flow (default for paid plans)
+      // Convert date/time to UTC ISO strings (interpret as America/Los_Angeles)
+      const startAtUTCDate = parseLocalDateTimeToUTC(data.selectedDate, data.selectedTime);
+      const endAtUTCDate = new Date(startAtUTCDate.getTime() + 30 * 60 * 1000);
+      
       const requestBody = {
         appointmentData: {
           customerName: data.customerName,
@@ -555,6 +563,8 @@ export function BookingForm({ defaultBarberId, isSecondCut, bookingState, hasFre
           plan: effectivePlan, // Use the effective plan
           location: data.location,
           notes: data.notes,
+          startAtUTC: startAtUTCDate.toISOString(), // Send UTC for server
+          endAtUTC: endAtUTCDate.toISOString(),
           ...(isSecondCut ? { kind: "DISCOUNT_SECOND" } : {}),
           bookingStateType: bookingState?.type, // Required for backend guard
         }

@@ -18,6 +18,7 @@ import {
   syncSubscriptionFromCheckoutSession,
   devGrantMembershipForSession,
 } from "@/lib/subscriptions";
+import { formatAppointmentDate, formatAppointmentTime, formatAppointmentDateTime, formatInBusinessTimeZone } from "@/lib/time-utils";
 
 export const dynamic = "force-dynamic";
 
@@ -514,21 +515,13 @@ export default async function AccountPage({ searchParams }: AccountPageProps) {
       // Check if the appointment is completed
       if (discountSecondAppointment.status === "COMPLETED") {
         const barberName = discountSecondAppointment.barber?.name || discountSecondAppointment.barber?.email || "your barber";
-        const appointmentDate = new Date(discountSecondAppointment.startAt).toLocaleDateString("en-US", {
-          month: "long",
-          day: "numeric",
-          year: "numeric",
-        });
+        const appointmentDate = formatInBusinessTimeZone(discountSecondAppointment.startAt, "MMMM d, yyyy");
         return `Your $10 second cut with ${barberName} on ${appointmentDate} was completed. Thanks for visiting!`;
       }
       
       // Appointment is booked but not yet completed
       const barberName = discountSecondAppointment.barber?.name || discountSecondAppointment.barber?.email || "your barber";
-      const appointmentDate = new Date(discountSecondAppointment.startAt).toLocaleDateString("en-US", {
-        month: "long",
-        day: "numeric",
-        year: "numeric",
-      });
+      const appointmentDate = formatInBusinessTimeZone(discountSecondAppointment.startAt, "MMMM d, yyyy");
       return `Your $10 second cut is booked with ${barberName} on ${appointmentDate}.`;
     }
     
@@ -624,15 +617,8 @@ export default async function AccountPage({ searchParams }: AccountPageProps) {
         const barberName = discountSecondAppointment.barber?.name || 
           discountSecondAppointment.barber?.email || 
           "your barber";
-        const appointmentDate = new Date(discountSecondAppointment.startAt).toLocaleDateString("en-US", {
-          month: "long",
-          day: "numeric",
-          year: "numeric",
-        });
-        const appointmentTime = new Date(discountSecondAppointment.startAt).toLocaleTimeString("en-US", {
-          hour: "numeric",
-          minute: "2-digit",
-        });
+        const appointmentDate = formatInBusinessTimeZone(discountSecondAppointment.startAt, "MMMM d, yyyy");
+        const appointmentTime = formatAppointmentTime(discountSecondAppointment.startAt);
         return {
           title: "Your $10 second cut is booked",
           description: `You're all set for your $10 second cut with ${barberName} on ${appointmentDate} at ${appointmentTime}. If you need to change the time, you can manage your appointment below.`,
@@ -694,11 +680,7 @@ export default async function AccountPage({ searchParams }: AccountPageProps) {
           .filter((a) => a?.status === "COMPLETED" && a?.startAt)
           .sort((a, b) => new Date(b.startAt).getTime() - new Date(a.startAt).getTime())[0];
         const lastBarberName = lastAppointment?.barber?.name || lastAppointment?.barber?.email || "your barber";
-        const lastDate = lastAppointment?.startAt ? new Date(lastAppointment.startAt).toLocaleDateString("en-US", {
-          month: "long",
-          day: "numeric",
-          year: "numeric",
-        }) : null;
+        const lastDate = lastAppointment?.startAt ? formatInBusinessTimeZone(lastAppointment.startAt, "MMMM d, yyyy") : null;
         const lastAppointmentText = lastAppointment && lastDate
           ? ` Your last cut was with ${lastBarberName} on ${lastDate}.`
           : "";
@@ -929,13 +911,13 @@ export default async function AccountPage({ searchParams }: AccountPageProps) {
                 <div className="flex items-start gap-5">
                   <div className="flex-shrink-0 text-center min-w-[60px]">
                     <div className="text-2xl font-semibold text-zinc-900 font-mono tabular-nums leading-tight">
-                      {new Date(nextUpcoming.startAt).toLocaleDateString("en-US", { day: "numeric" })}
+                      {formatInBusinessTimeZone(nextUpcoming.startAt, "d")}
                     </div>
                     <div className="text-xs uppercase tracking-wider text-zinc-500 mt-1 font-mono tabular-nums">
-                      {new Date(nextUpcoming.startAt).toLocaleDateString("en-US", { month: "short" })}
+                      {formatInBusinessTimeZone(nextUpcoming.startAt, "MMM")}
                     </div>
                     <div className="text-sm text-zinc-500 mt-2 font-mono tabular-nums">
-                      {new Date(nextUpcoming.startAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
+                      {formatAppointmentTime(nextUpcoming.startAt)}
                     </div>
                   </div>
                   <div className="border-l border-dashed border-zinc-200 pl-5 flex-1">
@@ -1001,7 +983,7 @@ export default async function AccountPage({ searchParams }: AccountPageProps) {
                     <div key={apt.id} className="flex items-center justify-between text-sm py-2.5 border-b border-dashed border-zinc-200 last:border-0">
                       <div>
                         <p className="font-semibold text-zinc-900 font-mono tabular-nums leading-tight">
-                          {apt.startAt ? new Date(apt.startAt).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"}
+                          {apt.startAt ? formatAppointmentDate(apt.startAt) : "—"}
                         </p>
                         <p className="text-xs text-zinc-600 mt-0.5 leading-relaxed">{apt.barber?.name || "Barber"}</p>
                       </div>

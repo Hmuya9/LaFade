@@ -11,6 +11,7 @@ import { auth } from "@/lib/auth";
 import { PRICING, getPricingByPlanId } from "@/lib/pricing";
 import { isFreeCutAppointment, getClientFunnelForUser } from "@/lib/client-funnel";
 import { getBookingState } from "@/lib/bookingState";
+import { parseLocalDateTimeToUTC, BUSINESS_TIMEZONE } from "@/lib/time-utils";
 
 export const runtime = "nodejs";
 
@@ -263,27 +264,33 @@ export async function POST(req: NextRequest) {
     }
 
     // Parse date/time - prefer UTC ISO strings from client, otherwise parse on server
+    // IMPORTANT: All times are interpreted as America/Los_Angeles (business timezone)
     let startAtUTC: Date;
     let endAtUTC: Date;
     
     if (data.startAtUTC && data.endAtUTC) {
-      // Client sent UTC ISO strings - use them directly
+      // Client sent UTC ISO strings - use them directly (client already converted from LA time)
       startAtUTC = new Date(data.startAtUTC);
       endAtUTC = new Date(data.endAtUTC);
-    } else {
-      // Fallback: Parse on server (uses server timezone - not ideal)
-      // User provides date (YYYY-MM-DD) and time (e.g., "10:00 AM") in local timezone
-      const [year, month, day] = data.selectedDate.split('-').map(Number);
-      const [time, period] = data.selectedTime.split(" "); // "10:00", "AM"
-      const [hh, mm] = time.split(":");
-      let hour = parseInt(hh, 10); 
-      if (period === "PM" && hour !== 12) hour += 12;
-      if (period === "AM" && hour === 12) hour = 0;
       
-      // Create Date object in server's local timezone
-      const startAtLocal = new Date(year, month - 1, day, hour, parseInt(mm ?? "0", 10), 0, 0);
-      startAtUTC = startAtLocal;
+      console.log("[bookings] Using client-provided UTC times:", {
+        inputDate: data.selectedDate,
+        inputTime: data.selectedTime,
+        startAtUTC: startAtUTC.toISOString(),
+        endAtUTC: endAtUTC.toISOString(),
+      });
+    } else {
+      // Fallback: Parse on server - interpret as America/Los_Angeles timezone
+      startAtUTC = parseLocalDateTimeToUTC(data.selectedDate, data.selectedTime);
       endAtUTC = new Date(startAtUTC.getTime() + 30 * 60 * 1000); // +30 minutes
+      
+      console.log("[bookings] Parsed server-side (fallback):", {
+        inputDate: data.selectedDate,
+        inputTime: data.selectedTime,
+        timezone: BUSINESS_TIMEZONE,
+        startAtUTC: startAtUTC.toISOString(),
+        endAtUTC: endAtUTC.toISOString(),
+      });
     }
 
     // === GUARD: Idempotency handling (always server-generated for consistency) ===
