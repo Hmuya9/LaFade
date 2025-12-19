@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/db"
 import { redisGet, redisSet } from "@/lib/redis"
-import { getAvailableSlotsForDate, findBarberByIdOrName } from "@/lib/availability"
+import { getAvailableSlotsForDate, getAllSlotsWithStatus, findBarberByIdOrName } from "@/lib/availability"
 
 export const runtime = "nodejs";
 export const dynamic = 'force-dynamic'
@@ -89,32 +89,31 @@ export async function GET(request: NextRequest) {
       console.log('[availability] Redis cache unavailable, continuing without cache')
     }
 
-    // Get available slots from weekly availability system
-    const availableSlots = await getAvailableSlotsForDate(barber.id, dateStr)
+    // Get all slots with availability status (includes booked slots)
+    const allSlots = await getAllSlotsWithStatus(barber.id, dateStr)
 
     if (process.env.NODE_ENV === "development") {
       console.log("[availability] Generated slots:", { 
         barberId: barber.id, 
         dateStr, 
-        count: availableSlots.length,
-        slots: availableSlots.slice(0, 5) // Log first 5 slots
+        totalSlots: allSlots.length,
+        availableSlots: allSlots.filter(s => s.available).length,
+        bookedSlots: allSlots.filter(s => !s.available).length,
+        slots: allSlots.slice(0, 5) // Log first 5 slots
       });
     }
 
-    // Format for frontend compatibility
-    const formattedSlots = availableSlots.map(time => ({
-      time,
-      available: true,
-    }))
+    const availableSlots = allSlots.filter(slot => slot.available);
+    const bookedSlots = allSlots.filter(slot => !slot.available);
 
     const result = {
       barberId: barber.id,
       barberName: barber.name || "Unknown",
       date: dateStr,
       plan: plan || 'any',
-      availableSlots: formattedSlots,
-      totalSlots: availableSlots.length,
-      bookedSlots: 0, // Not tracked separately in new system (conflicts handled via Appointment table)
+      availableSlots: allSlots, // Now includes both available and booked slots
+      totalSlots: allSlots.length,
+      bookedSlots: bookedSlots.length,
     }
 
     // Cache for 60 seconds (graceful fallback if Redis fails)

@@ -6,7 +6,8 @@
  */
 
 import { prisma } from "@/lib/db";
-import { formatTime12Hour, parse12HourTime } from "@/lib/time-utils";
+import { formatTime12Hour, parse12HourTime, toBusinessTimeZone, BUSINESS_TIMEZONE } from "@/lib/time-utils";
+import { formatInTimeZone } from "date-fns-tz";
 
 // V1 Launch Safety: Only allow these two real barbers
 const REAL_BARBER_IDS = [
@@ -191,6 +192,94 @@ export async function getAvailableSlotsForDate(
   }
   
   return availableSlots;
+}
+
+/**
+ * Get all time slots for a barber on a specific date with availability status.
+ * Returns both available and booked slots so UI can display them differently.
+ * 
+ * @param barberId - Barber's user ID
+ * @param date - Date string in "YYYY-MM-DD" format
+ * @returns Array of slot objects with time and available status
+ */
+export async function getAllSlotsWithStatus(
+  barberId: string,
+  date: string
+): Promise<Array<{ time: string; available: boolean }>> {
+  // Parse the date (YYYY-MM-DD format)
+  const targetDate = new Date(date + "T00:00:00.000Z");
+  const dayOfWeek = targetDate.getUTCDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+  
+  // Get weekly availability for this day
+  const weeklyAvailability = await prisma.barberAvailability.findMany({
+    where: {
+      barberId,
+      dayOfWeek,
+    },
+    orderBy: {
+      startTime: "asc",
+    },
+  });
+  
+  if (weeklyAvailability.length === 0) {
+    return []; // No availability for this day
+  }
+  
+  // Generate all possible slots from ranges
+  const allSlots24: Set<string> = new Set();
+  
+  for (const avail of weeklyAvailability) {
+    const slots = generateSlotsFromRange(avail.startTime, avail.endTime);
+    slots.forEach((slot) => allSlots24.add(slot));
+  }
+  
+  // Get existing appointments for this barber on this date
+  // Appointments are stored in UTC, so use UTC date boundaries
+  const startOfDay = new Date(date + "T00:00:00.000Z");
+  const endOfDay = new Date(date + "T23:59:59.999Z");
+  
+  const appointments = await prisma.appointment.findMany({
+    where: {
+      barberId,
+      startAt: {
+        gte: startOfDay,
+        lte: endOfDay,
+      },
+      status: {
+        in: ["BOOKED", "CONFIRMED"], // Only count active appointments
+      },
+    },
+  });
+  
+  // Track which slots are booked
+  // Convert appointment times from UTC to America/Los_Angeles to match slot format
+  const bookedSlots24: Set<string> = new Set();
+  
+  for (const appointment of appointments) {
+    // Convert UTC appointment time to LA timezone to get the actual time shown
+    const laTime = formatInTimeZone(appointment.startAt, BUSINESS_TIMEZONE, "HH:mm");
+    bookedSlots24.add(laTime);
+  }
+  
+  // Convert all slots to 12-hour format and include availability status
+  const allSlots = Array.from(allSlots24)
+    .map((slot24) => ({
+      time24: slot24,
+      time12: formatTime12Hour(slot24),
+      available: !bookedSlots24.has(slot24),
+    }))
+    .sort((a, b) => {
+      // Sort by 24-hour time for correct ordering
+      const timeA = parse12HourTime(a.time12);
+      const timeB = parse12HourTime(b.time12);
+      return timeA - timeB;
+    })
+    .map((slot) => ({
+      time: slot.time12,
+      available: slot.available,
+    }));
+  
+  return allSlots;
 }
 
 /**

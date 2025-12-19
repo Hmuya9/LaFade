@@ -115,6 +115,7 @@ export function BookingForm({ defaultBarberId, isSecondCut, bookingState, hasFre
   const [showSuccess, setShowSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [availableSlots, setAvailableSlots] = useState<string[]>([]);
+  const [allTimeSlots, setAllTimeSlots] = useState<Array<{ time: string; available: boolean }>>([]);
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [successData, setSuccessData] = useState<{ emailed: boolean; icsUrl?: string; message?: string } | null>(null);
   const [barbers, setBarbers] = useState<BarberOption[]>([]);
@@ -292,6 +293,7 @@ export function BookingForm({ defaultBarberId, isSecondCut, bookingState, hasFre
     const fetchAvailability = async () => {
       if (!selectedBarber || !selectedDate) {
         setAvailableSlots([]);
+        setAllTimeSlots([]);
         return;
       }
 
@@ -307,17 +309,23 @@ export function BookingForm({ defaultBarberId, isSecondCut, bookingState, hasFre
         if (!response.ok) throw new Error('Failed to fetch availability');
         
         const data = await response.json();
-        const slots = data.availableSlots?.map((slot: any) => slot.time) || [];
-        setAvailableSlots(slots);
+        // Store all slots with availability status
+        const slotsWithStatus: Array<{ time: string; available: boolean }> = data.availableSlots || [];
+        setAllTimeSlots(slotsWithStatus);
+        
+        // Also keep available slots list for backward compatibility
+        const availableOnly = slotsWithStatus.filter(slot => slot.available).map(slot => slot.time);
+        setAvailableSlots(availableOnly);
         
         // Clear selected time if it's no longer available
         const currentTime = watch("selectedTime");
-        if (currentTime && !slots.includes(currentTime)) {
+        if (currentTime && !availableOnly.includes(currentTime)) {
           setValue("selectedTime", "");
         }
       } catch (error) {
         console.error('Availability fetch error:', error);
         setAvailableSlots([]);
+        setAllTimeSlots([]);
       } finally {
         setLoadingSlots(false);
       }
@@ -1058,21 +1066,52 @@ export function BookingForm({ defaultBarberId, isSecondCut, bookingState, hasFre
                         )}
                         
                         {/* Time pills - 2 columns on small screens, 3 on larger */}
+                        {/* Show all slots: available in normal style, booked in red/disabled */}
                         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                          {availableSlots.map((time) => (
-                            <button
-                              key={time}
-                              type="button"
-                              onClick={() => setValue("selectedTime", time)}
-                              className={`px-3 py-2 rounded-xl border transition-all duration-150 ease-out text-sm font-medium active:scale-95 ${
-                                watch("selectedTime") === time
-                                  ? "bg-gradient-to-r from-rose-600 to-amber-600 text-white border-transparent shadow-md scale-105"
-                                  : "bg-white text-slate-700 border-slate-200 hover:border-rose-300 hover:bg-rose-50/50 hover:scale-105"
-                              }`}
-                            >
-                              {time}
-                            </button>
-                          ))}
+                          {allTimeSlots.length > 0 ? (
+                            allTimeSlots.map((slot) => {
+                              const isSelected = watch("selectedTime") === slot.time;
+                              const isBooked = !slot.available;
+                              
+                              return (
+                                <button
+                                  key={slot.time}
+                                  type="button"
+                                  onClick={() => {
+                                    if (!isBooked) {
+                                      setValue("selectedTime", slot.time);
+                                    }
+                                  }}
+                                  disabled={isBooked}
+                                  className={`px-3 py-2 rounded-xl border transition-all duration-150 ease-out text-sm font-medium ${
+                                    isBooked
+                                      ? "bg-red-50 text-red-600 border-red-200 cursor-not-allowed opacity-75 line-through"
+                                      : isSelected
+                                      ? "bg-gradient-to-r from-rose-600 to-amber-600 text-white border-transparent shadow-md scale-105 active:scale-95"
+                                      : "bg-white text-slate-700 border-slate-200 hover:border-rose-300 hover:bg-rose-50/50 hover:scale-105 active:scale-95"
+                                  }`}
+                                  title={isBooked ? "This time slot is already booked" : ""}
+                                >
+                                  {slot.time}
+                                </button>
+                              );
+                            })
+                          ) : (
+                            availableSlots.map((time) => (
+                              <button
+                                key={time}
+                                type="button"
+                                onClick={() => setValue("selectedTime", time)}
+                                className={`px-3 py-2 rounded-xl border transition-all duration-150 ease-out text-sm font-medium active:scale-95 ${
+                                  watch("selectedTime") === time
+                                    ? "bg-gradient-to-r from-rose-600 to-amber-600 text-white border-transparent shadow-md scale-105"
+                                    : "bg-white text-slate-700 border-slate-200 hover:border-rose-300 hover:bg-rose-50/50 hover:scale-105"
+                                }`}
+                              >
+                                {time}
+                              </button>
+                            ))
+                          )}
                         </div>
                       </>
                     )}
