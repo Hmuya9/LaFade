@@ -14,6 +14,8 @@ export interface AppointmentListProps {
   showActions?: boolean;
   onCancel?: (appointmentId: string) => void;
   onReschedule?: (appointmentId: string) => void;
+  cancelingId?: string | null;
+  reschedulingId?: string | null;
 }
 
 /**
@@ -29,7 +31,9 @@ export function AppointmentList({
   className,
   showActions = false,
   onCancel,
-  onReschedule
+  onReschedule,
+  cancelingId = null,
+  reschedulingId = null
 }: AppointmentListProps) {
   if (appointments.length === 0) {
     return (
@@ -59,6 +63,8 @@ export function AppointmentList({
           showActions={showActions}
           onCancel={onCancel}
           onReschedule={onReschedule}
+          isCanceling={cancelingId === appointment.id}
+          isRescheduling={reschedulingId === appointment.id}
         />
       ))}
     </div>

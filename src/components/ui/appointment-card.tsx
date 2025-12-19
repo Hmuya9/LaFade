@@ -37,6 +37,8 @@ export interface AppointmentCardProps {
   showActions?: boolean;
   onCancel?: (appointmentId: string) => void;
   onReschedule?: (appointmentId: string) => void;
+  isCanceling?: boolean;
+  isRescheduling?: boolean;
 }
 
 /**
@@ -49,7 +51,9 @@ export function AppointmentCard({
   className,
   showActions = false,
   onCancel,
-  onReschedule
+  onReschedule,
+  isCanceling = false,
+  isRescheduling = false
 }: AppointmentCardProps) {
   const startDate = new Date(appointment.startAt);
   
@@ -209,10 +213,11 @@ export function AppointmentCard({
                   size="sm"
                   variant="outline"
                   onClick={() => onReschedule(appointment.id)}
+                  disabled={isRescheduling || isCanceling}
                   className="flex-1 text-xs"
                 >
                   <CalendarDays className="w-3.5 h-3.5 mr-1.5" />
-                  Reschedule
+                  {isRescheduling ? "Redirecting..." : "Reschedule"}
                 </Button>
               )}
               {onCancel && (
@@ -220,10 +225,11 @@ export function AppointmentCard({
                   size="sm"
                   variant="outline"
                   onClick={() => onCancel(appointment.id)}
-                  className="flex-1 text-xs text-red-600 hover:text-red-700 hover:bg-red-50"
+                  disabled={isCanceling || isRescheduling}
+                  className="flex-1 text-xs text-red-600 hover:text-red-700 hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <X className="w-3.5 h-3.5 mr-1.5" />
-                  Cancel
+                  {isCanceling ? "Canceling..." : "Cancel"}
                 </Button>
               )}
             </div>
