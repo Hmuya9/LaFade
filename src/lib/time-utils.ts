@@ -4,7 +4,7 @@
  */
 
 import { formatInTimeZone, toZonedTime, fromZonedTime } from 'date-fns-tz';
-import { format, parse } from 'date-fns';
+import { format, parse, parseISO } from 'date-fns';
 
 // Business timezone - all appointments are in Los Angeles time
 export const BUSINESS_TIMEZONE = 'America/Los_Angeles';
