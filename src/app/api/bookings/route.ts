@@ -11,7 +11,7 @@ import { auth } from "@/lib/auth";
 import { PRICING, getPricingByPlanId } from "@/lib/pricing";
 import { isFreeCutAppointment, getClientFunnelForUser } from "@/lib/client-funnel";
 import { getBookingState } from "@/lib/bookingState";
-import { parseLocalDateTimeToUTC, BUSINESS_TIMEZONE } from "@/lib/time-utils";
+import { parseLocalDateTimeToUTC, BUSINESS_TIMEZONE, formatInBusinessTimeZone } from "@/lib/time-utils";
 
 export const runtime = "nodejs";
 
@@ -276,8 +276,11 @@ export async function POST(req: NextRequest) {
       console.log("[bookings] Using client-provided UTC times:", {
         inputDate: data.selectedDate,
         inputTime: data.selectedTime,
+        timezone: BUSINESS_TIMEZONE,
         startAtUTC: startAtUTC.toISOString(),
         endAtUTC: endAtUTC.toISOString(),
+        // Debug: show what time this represents in LA timezone
+        startAtLA: formatInBusinessTimeZone(startAtUTC, "yyyy-MM-dd HH:mm:ss zzz"),
       });
     } else {
       // Fallback: Parse on server - interpret as America/Los_Angeles timezone
