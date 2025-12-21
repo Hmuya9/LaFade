@@ -52,12 +52,14 @@ type BarberDashboardClientProps = {
   barberId: string;
   barberRole: "BARBER" | "OWNER";
   appointments: Appointment[];
+  completedHistory?: Appointment[];
 };
 
 export function BarberDashboardClient({
   barberId,
   barberRole,
   appointments: initialAppointments,
+  completedHistory = [],
 }: BarberDashboardClientProps) {
   const [error, setError] = useState("");
   const [qrApptId, setQrApptId] = useState("");
@@ -234,6 +236,58 @@ export function BarberDashboardClient({
             </div>
           )}
         </section>
+
+        {/* Completed History Section */}
+        {completedHistory.length > 0 && (
+          <section className="mb-8">
+            <div className="mb-4">
+              <h2 className="text-lg font-semibold text-zinc-900">Completed History</h2>
+              <p className="text-sm text-zinc-500">
+                Last 60 days of completed appointments ({completedHistory.length} total)
+              </p>
+            </div>
+            <div className="space-y-3">
+              {completedHistory.map((apt) => (
+                <Card key={apt.id}>
+                  <CardContent className="p-4">
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-2">
+                          <h3 className="font-semibold text-zinc-900">
+                            {apt.client.name}
+                          </h3>
+                          <span className="text-xs px-2 py-1 rounded bg-zinc-100 text-zinc-700">
+                            {getPlanName(apt)}
+                          </span>
+                          <span className="text-xs px-2 py-1 rounded bg-emerald-100 text-emerald-700">
+                            COMPLETED
+                          </span>
+                        </div>
+                        <div className="text-sm text-zinc-600 space-y-1">
+                          <p>
+                            <TimeRangeClient
+                              startAt={apt.startAt}
+                              endAt={apt.endAt}
+                              showDate={true}
+                              dateFormat="EEE MMM d"
+                              timeFormat="p"
+                            />
+                          </p>
+                          {apt.type === "HOME" && apt.address && (
+                            <p className="text-zinc-500">📍 {apt.address}</p>
+                          )}
+                          {apt.notes && (
+                            <p className="text-zinc-500 italic">Note: {apt.notes}</p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </section>
+        )}
 
         <div className="mb-6">
           <RealtimeBookingsPanel />

@@ -58,6 +58,43 @@ export default async function BarberDashboard() {
     take: 50, // Limit to next 50 appointments
   });
 
+  // Fetch completed history (last 60 days)
+  const sixtyDaysAgo = new Date();
+  sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60);
+  
+  const completedHistory = await prisma.appointment.findMany({
+    where: {
+      ...(user.role === "BARBER" ? { barberId: user.id } : {}),
+      status: "COMPLETED",
+      startAt: {
+        gte: sixtyDaysAgo, // Last 60 days
+        lte: now, // Only past appointments
+      },
+    },
+    include: {
+      client: {
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          phone: true,
+        },
+      },
+      barber: {
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          phone: true,
+        },
+      },
+    },
+    orderBy: {
+      startAt: "desc", // Most recent first
+    },
+    take: 200, // Limit to 200 most recent
+  });
+
   // Format appointments for client component
   const formattedAppointments = upcomingAppointments.map((apt) => ({
     id: apt.id,
@@ -108,11 +145,37 @@ export default async function BarberDashboard() {
   // TypeScript now knows user.role is "BARBER" | "OWNER"
   const barberRole = user.role;
 
+  // Format completed history for client component
+  const formattedCompletedHistory = completedHistory.map((apt) => ({
+    id: apt.id,
+    client: {
+      id: apt.client.id,
+      name: apt.client.name || apt.client.email || "Client",
+      email: apt.client.email || "",
+      phone: apt.client.phone || "",
+    },
+    barber: {
+      id: apt.barber?.id || "",
+      name: apt.barber?.name || apt.barber?.email || "Barber",
+      email: apt.barber?.email || "",
+      phone: apt.barber?.phone || "",
+    },
+    startAt: apt.startAt.toISOString(),
+    endAt: apt.endAt.toISOString(),
+    status: apt.status,
+    type: apt.type,
+    address: apt.address || null,
+    notes: apt.notes || null,
+    isFree: apt.isFree || false,
+    kind: apt.kind || null,
+  }));
+
   return (
     <BarberDashboardClient
       barberId={user.id}
       barberRole={barberRole}
       appointments={formattedAppointments}
+      completedHistory={formattedCompletedHistory}
     />
   );
 }
