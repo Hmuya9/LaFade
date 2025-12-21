@@ -58,13 +58,13 @@ export default async function BarberDashboard() {
     take: 50, // Limit to next 50 appointments
   });
 
-  // Fetch completed history (last 60 days)
+  // Fetch completed history (last 60 days) - scoped to logged-in barber only
   const sixtyDaysAgo = new Date();
   sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60);
   
   const completedHistory = await prisma.appointment.findMany({
     where: {
-      ...(user.role === "BARBER" ? { barberId: user.id } : {}),
+      barberId: user.id, // Always filter by logged-in barber (even for OWNER role)
       status: "COMPLETED",
       startAt: {
         gte: sixtyDaysAgo, // Last 60 days

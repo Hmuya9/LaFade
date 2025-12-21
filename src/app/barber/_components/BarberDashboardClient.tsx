@@ -13,6 +13,7 @@ import { WeeklyScheduleCalendarWrapper } from "./WeeklyScheduleCalendarWrapper";
 import { BarberCityForm } from "./BarberCityForm";
 import { MetricCard } from "@/components/MetricCard";
 import { TimeRangeClient } from "@/components/TimeRangeClient";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { Users, Scissors, TrendingUp, CalendarDays, DollarSign } from "lucide-react";
 
 type Appointment = {
@@ -103,9 +104,9 @@ export function BarberDashboardClient({
 
   // Format appointment type/plan name
   const getPlanName = (apt: Appointment) => {
-    if (apt.isFree) return "Free Test Cut";
+    if (apt.isFree) return "Free";
+    if (apt.kind === "DISCOUNT_SECOND") return "$10";
     if (apt.type === "HOME") return "Deluxe";
-    if (apt.kind === "DISCOUNT_SECOND") return "$10 Second Cut";
     return "Standard";
   };
 
@@ -238,14 +239,23 @@ export function BarberDashboardClient({
         </section>
 
         {/* Completed History Section */}
-        {completedHistory.length > 0 && (
-          <section className="mb-8">
-            <div className="mb-4">
-              <h2 className="text-lg font-semibold text-zinc-900">Completed History</h2>
-              <p className="text-sm text-zinc-500">
-                Last 60 days of completed appointments ({completedHistory.length} total)
-              </p>
-            </div>
+        <section className="mb-8">
+          <div className="mb-4">
+            <h2 className="text-lg font-semibold text-zinc-900">Completed History</h2>
+            <p className="text-sm text-zinc-500">
+              Last 60 days of completed appointments
+            </p>
+          </div>
+          {completedHistory.length === 0 ? (
+            <Card>
+              <CardContent className="p-6 text-center">
+                <p className="text-zinc-600 mb-2">No completed cuts yet</p>
+                <p className="text-sm text-zinc-500">
+                  Completed appointments will appear here once you mark them as complete.
+                </p>
+              </CardContent>
+            </Card>
+          ) : (
             <div className="space-y-3">
               {completedHistory.map((apt) => (
                 <Card key={apt.id}>
@@ -259,9 +269,7 @@ export function BarberDashboardClient({
                           <span className="text-xs px-2 py-1 rounded bg-zinc-100 text-zinc-700">
                             {getPlanName(apt)}
                           </span>
-                          <span className="text-xs px-2 py-1 rounded bg-emerald-100 text-emerald-700">
-                            COMPLETED
-                          </span>
+                          <StatusBadge status="COMPLETED" />
                         </div>
                         <div className="text-sm text-zinc-600 space-y-1">
                           <p>
@@ -286,8 +294,8 @@ export function BarberDashboardClient({
                 </Card>
               ))}
             </div>
-          </section>
-        )}
+          )}
+        </section>
 
         <div className="mb-6">
           <RealtimeBookingsPanel />
