@@ -5,7 +5,7 @@ import { z } from "zod";
 import crypto from "crypto";
 import { buildICS } from "@/lib/calendar";
 import { sendBookingEmail } from "@/lib/notify";
-import { sendBookingEmailsSafe, type EmailResult } from "@/lib/email";
+import { sendBookingEmailsSafe, sendAdminBookingAlert, type EmailResult } from "@/lib/email";
 import { pusherServer } from "@/lib/pusher";
 import { auth } from "@/lib/auth";
 import { PRICING, getPricingByPlanId } from "@/lib/pricing";
@@ -1034,6 +1034,30 @@ export async function POST(req: NextRequest) {
         .catch((err) => {
           console.error('[booking][email] Unexpected error in background email send', { appointmentId: appointment.id, error: err });
         });
+
+      // Send admin alert (fire-and-forget, never blocks booking)
+      try {
+        const clientName = appointment.client.name || appointment.client.email || "Client";
+        const barberName = appointment.barber.name || appointment.barber.email || "Barber";
+        // Format time in business timezone (America/Los_Angeles) for admin alert
+        const timeFormatted = formatInBusinessTimeZone(appointment.startAt, 'EEE, MMM d • h:mm a');
+        const appointmentKind = (appointment as any).kind || null;
+        
+        sendAdminBookingAlert(clientName, barberName, timeFormatted, appointmentKind)
+          .then((result) => {
+            if (result.emailed) {
+              console.log('[booking][admin-alert] Admin alert sent successfully', { appointmentId: appointment.id });
+            } else {
+              console.warn('[booking][admin-alert] Admin alert failed', { appointmentId: appointment.id, reason: result.reason });
+            }
+          })
+          .catch((err) => {
+            console.error('[booking][admin-alert] Unexpected error in admin alert', { appointmentId: appointment.id, error: err });
+          });
+      } catch (alertError) {
+        // Swallow error - admin alert should never break booking
+        console.error('[booking][admin-alert] Error preparing admin alert', { appointmentId: appointment.id, error: alertError });
+      }
       
       // Verify appointment was actually created
       if (!appointment || !appointment.id) {

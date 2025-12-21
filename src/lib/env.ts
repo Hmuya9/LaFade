@@ -17,6 +17,7 @@ const serverSchema = z.object({
   // Email/Resend - OPTIONAL
   RESEND_API_KEY: z.string().optional(),
   EMAIL_FROM: z.string().email().optional(),
+  ADMIN_EMAIL: z.string().email().optional(),
 
   // Stripe - OPTIONAL
   STRIPE_SECRET_KEY: z.string().optional(),

@@ -331,3 +331,90 @@ export function sendBookingEmailsFireAndForget(appointmentId: string): void {
     console.error('[email] background email error', { appointmentId, error: err });
   });
 }
+
+/**
+ * Send admin alert email when a new booking is created.
+ * Safe wrapper - never throws, always logs errors.
+ * 
+ * @param clientName - Client's name
+ * @param barberName - Barber's name
+ * @param time - Formatted appointment time string (e.g., "Mon, Dec 20 • 2:30 PM")
+ * @param appointmentKind - Appointment kind: "TRIAL_FREE" | "DISCOUNT_SECOND" | "MEMBERSHIP_INCLUDED" | null (ONE_OFF)
+ * @returns EmailResult indicating success/failure
+ */
+export async function sendAdminBookingAlert(
+  clientName: string,
+  barberName: string,
+  time: string,
+  appointmentKind: "TRIAL_FREE" | "DISCOUNT_SECOND" | "MEMBERSHIP_INCLUDED" | null
+): Promise<EmailResult> {
+  try {
+    // Check env status first
+    const envStatus = getEmailEnvStatus();
+    if (!envStatus.ok) {
+      console.warn('[email] Admin alert skipped: Email env check failed:', envStatus.reason);
+      return { emailed: false, reason: envStatus.reason };
+    }
+
+    if (!resend) {
+      console.warn('[email] Admin alert skipped: Resend client not initialized');
+      return { emailed: false, reason: 'Resend client not initialized' };
+    }
+    if (!fromAddress) {
+      console.warn('[email] Admin alert skipped: From address missing');
+      return { emailed: false, reason: 'From address missing' };
+    }
+
+    // Get admin email from env (fallback allowed per requirements)
+    const adminEmail = process.env.ADMIN_EMAIL;
+    if (!adminEmail) {
+      console.warn('[email] Admin alert skipped: ADMIN_EMAIL not set');
+      return { emailed: false, reason: 'ADMIN_EMAIL not set' };
+    }
+
+    // Format appointment kind for display
+    let kindDisplay = "Standard";
+    if (appointmentKind === "TRIAL_FREE") {
+      kindDisplay = "Free Test Cut";
+    } else if (appointmentKind === "DISCOUNT_SECOND") {
+      kindDisplay = "$10 Second Cut";
+    } else if (appointmentKind === "MEMBERSHIP_INCLUDED") {
+      kindDisplay = "Membership Included";
+    }
+
+    const subject = `🔔 New Booking: ${clientName} with ${barberName}`;
+    const html = `
+      <div style="font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; line-height: 1.5;">
+        <h1 style="font-size:20px;margin-bottom:16px;">New Booking Alert</h1>
+        <p><strong>Client:</strong> ${clientName}</p>
+        <p><strong>Barber:</strong> ${barberName}</p>
+        <p><strong>Time:</strong> ${time}</p>
+        <p><strong>Type:</strong> ${kindDisplay}</p>
+        <p style="margin-top:16px;font-size:12px;color:#6b7280;">
+          View all appointments in the admin dashboard.
+        </p>
+      </div>
+    `;
+
+    const result = await resend.emails.send({
+      from: fromAddress,
+      to: adminEmail,
+      subject,
+      html,
+    });
+
+    if ((result as any)?.error) {
+      const errorMessage = (result as any).error.message || String((result as any).error);
+      console.error('[email] Admin alert failed', { error: errorMessage });
+      return { emailed: false, reason: `Resend API error: ${errorMessage}` };
+    }
+
+    console.log('[email] Admin alert sent successfully', { adminEmail });
+    return { emailed: true };
+  } catch (err) {
+    // IMPORTANT: swallow error - do not throw
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    console.error('[email] Admin alert error', { error: errorMessage });
+    return { emailed: false, reason: `Exception: ${errorMessage}` };
+  }
+}
