@@ -3,11 +3,13 @@ import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { Sparkles } from "lucide-react";
+import { unstable_noStore } from "next/cache";
 import { SecuritySection } from "./_components/SecuritySection";
 import { AppointmentsSkeleton } from "./_components/AppointmentsSkeleton";
 import { UpcomingAppointmentsClient } from "./_components/UpcomingAppointmentsClient";
 import { NextAppointmentCard } from "./_components/NextAppointmentCard";
 import { LogoutButton } from "./_components/LogoutButton";
+import { AccountRefreshHandler } from "./_components/AccountRefreshHandler";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { AppointmentList } from "@/components/ui/appointment-list";
@@ -47,6 +49,9 @@ type AccountPageProps = {
  * - Past: status is CANCELED, COMPLETED, or NO_SHOW
  */
 export default async function AccountPage({ searchParams }: AccountPageProps) {
+  // Disable all caching to ensure fresh data on every request
+  unstable_noStore();
+  
   // Only log searchParams in development (may contain sensitive data)
   if (process.env.NODE_ENV !== "production") {
   console.log("[account] props.searchParams =", JSON.stringify(searchParams, null, 2));
@@ -351,6 +356,8 @@ export default async function AccountPage({ searchParams }: AccountPageProps) {
   // We only consider appointments in the future (or later today) as "upcoming".
   // Any past appointment, even if still BOOKED/CONFIRMED, is treated as past so
   // the dashboard doesn't show stale "next cut" dates from previous months.
+  // Use a grace window to ensure newly booked appointments always appear immediately.
+  const GRACE_MS = 5 * 60 * 1000; // 5 minutes grace window
   const now = new Date();
   const nowTime = now.getTime();
   const upcomingRaw = allAppointments.filter((a) => {
@@ -361,8 +368,8 @@ export default async function AccountPage({ searchParams }: AccountPageProps) {
     // Ensure startAt is a Date object and compare using getTime() for reliable numeric comparison
     const startAtDate = a.startAt instanceof Date ? a.startAt : new Date(a.startAt);
     const startAtTime = startAtDate.getTime();
-    // Only include if appointment start time is in the future (strictly greater than now)
-    return startAtTime > nowTime;
+    // Include if appointment start time is in the future OR within grace window (resilient to timing issues)
+    return startAtTime >= (nowTime - GRACE_MS);
   });
   
   // Past: everything else (complete partition - no appointments dropped)
@@ -781,6 +788,7 @@ export default async function AccountPage({ searchParams }: AccountPageProps) {
   // DEBUG PANEL (dev only)
   return (
     <main className="min-h-screen" data-debug="account-v2">
+      <AccountRefreshHandler />
       <div className="mx-auto max-w-6xl px-4 md:px-6 py-12 md:py-16 space-y-8">
         {/* Bento Grid Layout */}
         <div className="grid grid-cols-1 md:grid-cols-12 gap-6 md:gap-8">
