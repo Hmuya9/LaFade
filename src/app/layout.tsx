@@ -32,7 +32,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body
-        className={`${inter.variable} min-h-screen bg-zinc-50 text-zinc-900 antialiased`}
+        className={`${inter.variable} min-h-[100dvh] bg-zinc-50 text-zinc-900 antialiased`}
       >
         <Providers>
           <ErrorBoundary>

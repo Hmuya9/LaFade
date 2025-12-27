@@ -787,15 +787,15 @@ export default async function AccountPage({ searchParams }: AccountPageProps) {
 
   // DEBUG PANEL (dev only)
   return (
-    <main className="min-h-screen" data-debug="account-v2">
+    <main className="min-h-[100dvh] w-full" data-debug="account-v2">
       <AccountRefreshHandler />
-      <div className="mx-auto max-w-6xl px-4 md:px-6 py-12 md:py-16 space-y-8">
+      <div className="mx-auto max-w-6xl w-full px-4 md:px-6 py-12 md:py-16 space-y-8">
         {/* Bento Grid Layout */}
-        <div className="grid grid-cols-1 md:grid-cols-12 gap-6 md:gap-8">
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-6 md:gap-8 min-w-0">
 
           {/* Booking Success Banner */}
           {justBooked && (
-            <div className="col-span-12">
+            <div className="col-span-12 min-w-0">
               <DismissibleBanner variant="success" autoDismiss duration={4500}>
                 <span className="font-semibold">Your cut is booked ✂️</span> — you&apos;ll find it below in Your Upcoming Appointments.
               </DismissibleBanner>
@@ -804,8 +804,8 @@ export default async function AccountPage({ searchParams }: AccountPageProps) {
 
           {/* Hero Card - Span 8 */}
           {user.role === "CLIENT" && funnel && (
-            <section className="md:col-span-8 rounded-3xl bg-white border border-zinc-200/70 shadow-[0_1px_2px_rgba(0,0,0,0.04)] shadow-[0_0_0_1px_rgba(0,0,0,0.03)_inset] hover:shadow-[0_6px_20px_rgba(0,0,0,0.06)] transition-all duration-300 opacity-0 animate-[fadeInUp_0.6s_ease-out_0.1s_forwards] p-8 md:p-10">
-              <h1 className="text-4xl md:text-5xl font-semibold tracking-tight text-zinc-900 leading-tight">
+            <section className="md:col-span-8 rounded-3xl bg-white border border-zinc-200/70 shadow-[0_1px_2px_rgba(0,0,0,0.04)] shadow-[0_0_0_1px_rgba(0,0,0,0.03)_inset] hover:shadow-[0_6px_20px_rgba(0,0,0,0.06)] transition-all duration-300 opacity-0 animate-[fadeInUp_0.6s_ease-out_0.1s_forwards] p-8 md:p-10 min-w-0">
+              <h1 className="text-4xl md:text-5xl font-semibold tracking-tight text-zinc-900 leading-tight break-words">
                 {getGreeting()}, {firstName}
               </h1>
               {funnel.hasActiveMembership ? (
@@ -829,7 +829,7 @@ export default async function AccountPage({ searchParams }: AccountPageProps) {
 
           {/* Usage Stats - Span 4 */}
           {user.role === "CLIENT" && membershipUsage && (
-            <section className="md:col-span-4 rounded-3xl bg-white border border-zinc-200/70 shadow-[0_1px_2px_rgba(0,0,0,0.04)] shadow-[0_0_0_1px_rgba(0,0,0,0.03)_inset] hover:shadow-[0_6px_20px_rgba(0,0,0,0.06)] p-6 md:p-8 flex flex-col justify-between transition-all duration-300 opacity-0 animate-[fadeInUp_0.6s_ease-out_0.2s_forwards]">
+            <section className="md:col-span-4 rounded-3xl bg-white border border-zinc-200/70 shadow-[0_1px_2px_rgba(0,0,0,0.04)] shadow-[0_0_0_1px_rgba(0,0,0,0.03)_inset] hover:shadow-[0_6px_20px_rgba(0,0,0,0.06)] p-6 md:p-8 flex flex-col justify-between transition-all duration-300 opacity-0 animate-[fadeInUp_0.6s_ease-out_0.2s_forwards] min-w-0">
               <div>
                 <p className="text-3xl md:text-4xl font-semibold tracking-tight text-zinc-900 leading-tight">
                   <span className="font-mono text-zinc-900 tabular-nums">{membershipUsage.cutsUsed}/{membershipUsage.cutsAllowed}</span> cuts used
@@ -850,7 +850,7 @@ export default async function AccountPage({ searchParams }: AccountPageProps) {
            !funnel.hasSecondCutBookedOrCompleted &&
            funnel.secondWindowExpiresAt &&
            getDaysUntilExpiry(funnel.secondWindowExpiresAt) !== null && (
-            <div className="col-span-12">
+            <div className="col-span-12 min-w-0">
             <Card className="rounded-3xl bg-white border border-zinc-200/70 shadow-[0_1px_2px_rgba(0,0,0,0.04)] shadow-[0_0_0_1px_rgba(0,0,0,0.03)_inset] hover:shadow-[0_6px_20px_rgba(0,0,0,0.06)] overflow-hidden transition-all duration-300">
               <CardHeader className="bg-white rounded-t-3xl border-b border-dashed border-zinc-200 relative">
                   {/* Limited time badge */}
@@ -864,7 +864,7 @@ export default async function AccountPage({ searchParams }: AccountPageProps) {
                     <div className="flex-shrink-0 w-10 h-10 rounded-full bg-zinc-100 flex items-center justify-center border border-zinc-200/60">
                       <Sparkles className="h-4 w-4 text-zinc-500 stroke-[1.5]" />
                     </div>
-                    <CardTitle className="text-2xl font-semibold tracking-tight text-zinc-900">
+                    <CardTitle className="text-2xl font-semibold tracking-tight text-zinc-900 min-w-0 break-words">
                       Holiday Special: Your <span className="font-mono tabular-nums">$10</span> second cut!
                     </CardTitle>
                   </div>
@@ -903,7 +903,7 @@ export default async function AccountPage({ searchParams }: AccountPageProps) {
 
         {/* Reschedule Success Banner */}
         {rescheduled && (
-          <div className="col-span-12">
+          <div className="col-span-12 min-w-0">
             <DismissibleBanner variant="success" autoDismiss duration={4500}>
               <span className="font-semibold">Appointment rescheduled successfully ✂️</span> — your new appointment is below.
             </DismissibleBanner>
@@ -911,7 +911,7 @@ export default async function AccountPage({ searchParams }: AccountPageProps) {
         )}
 
           {/* Your Next Cut - Span 8 */}
-          <section className="md:col-span-8 rounded-3xl bg-white border border-zinc-200/70 shadow-[0_1px_2px_rgba(0,0,0,0.04)] shadow-[0_0_0_1px_rgba(0,0,0,0.03)_inset] hover:shadow-[0_6px_20px_rgba(0,0,0,0.06)] p-6 md:p-8 transition-all duration-300" id="appointments">
+          <section className="md:col-span-8 rounded-3xl bg-white border border-zinc-200/70 shadow-[0_1px_2px_rgba(0,0,0,0.04)] shadow-[0_0_0_1px_rgba(0,0,0,0.03)_inset] hover:shadow-[0_6px_20px_rgba(0,0,0,0.06)] p-6 md:p-8 transition-all duration-300 min-w-0" id="appointments">
             <h2 className="text-lg font-semibold tracking-tight text-zinc-900 mb-5">Your next cut</h2>
             {nextUpcoming && nextUpcoming.startAt ? (
               <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
@@ -928,11 +928,11 @@ export default async function AccountPage({ searchParams }: AccountPageProps) {
                       {formatAppointmentTime(nextUpcoming.startAt)}
                     </div>
                   </div>
-                  <div className="border-l border-dashed border-zinc-200 pl-5 flex-1">
-                    <h3 className="font-semibold text-lg text-zinc-900 leading-tight">{nextUpcoming.barber?.name || "Barber"}</h3>
-                    <p className="text-sm text-zinc-600 mt-1 leading-relaxed">{nextUpcoming.plan}</p>
+                  <div className="border-l border-dashed border-zinc-200 pl-5 flex-1 min-w-0">
+                    <h3 className="font-semibold text-lg text-zinc-900 leading-tight break-words">{nextUpcoming.barber?.name || "Barber"}</h3>
+                    <p className="text-sm text-zinc-600 mt-1 leading-relaxed break-words">{nextUpcoming.plan}</p>
                     {nextUpcoming.type === "HOME" && nextUpcoming.address && (
-                      <p className="text-xs text-zinc-500 mt-1.5 leading-relaxed">{nextUpcoming.address}</p>
+                      <p className="text-xs text-zinc-500 mt-1.5 leading-relaxed break-words">{nextUpcoming.address}</p>
                     )}
                     {/* Barber Contact Info */}
                     {(nextUpcoming.barber?.email || nextUpcoming.barber?.phone) && (
@@ -982,7 +982,7 @@ export default async function AccountPage({ searchParams }: AccountPageProps) {
           </section>
 
           {/* Upcoming / History Summary - Span 4 */}
-          <section className="md:col-span-4 rounded-3xl bg-white border border-zinc-200/70 shadow-[0_1px_2px_rgba(0,0,0,0.04)] shadow-[0_0_0_1px_rgba(0,0,0,0.03)_inset] hover:shadow-[0_6px_20px_rgba(0,0,0,0.06)] p-6 md:p-7 space-y-4 transition-all duration-300">
+          <section className="md:col-span-4 rounded-3xl bg-white border border-zinc-200/70 shadow-[0_1px_2px_rgba(0,0,0,0.04)] shadow-[0_0_0_1px_rgba(0,0,0,0.03)_inset] hover:shadow-[0_6px_20px_rgba(0,0,0,0.06)] p-6 md:p-7 space-y-4 transition-all duration-300 min-w-0">
             {otherUpcoming.length > 0 ? (
               <>
                 <h3 className="text-sm font-semibold tracking-tight text-zinc-900 mb-1">Other upcoming</h3>
@@ -1019,7 +1019,7 @@ export default async function AccountPage({ searchParams }: AccountPageProps) {
 
           {/* Points Card - Span 4 */}
           {user.role === "CLIENT" && (
-            <section className="md:col-span-4 rounded-3xl bg-white border border-zinc-200/70 shadow-[0_1px_2px_rgba(0,0,0,0.04)] shadow-[0_0_0_1px_rgba(0,0,0,0.03)_inset] hover:shadow-[0_6px_20px_rgba(0,0,0,0.06)] p-6 md:p-7 transition-all duration-300">
+            <section className="md:col-span-4 rounded-3xl bg-white border border-zinc-200/70 shadow-[0_1px_2px_rgba(0,0,0,0.04)] shadow-[0_0_0_1px_rgba(0,0,0,0.03)_inset] hover:shadow-[0_6px_20px_rgba(0,0,0,0.06)] p-6 md:p-7 transition-all duration-300 min-w-0">
               <h3 className="text-sm font-semibold tracking-tight text-zinc-900 mb-3">Points</h3>
               <div className="text-3xl font-semibold tracking-tight text-zinc-900 font-mono tabular-nums leading-tight">
                 {points}

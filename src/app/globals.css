@@ -3,10 +3,13 @@
 @tailwind utilities;
 
 html, body {
+  width: 100%;
   height: 100%;
   overflow-x: hidden;
   margin: 0;
   padding: 0;
+  /* Prevent horizontal scroll on iOS Safari, especially after redirects */
+  position: relative;
 }
 
 * {
