@@ -187,7 +187,7 @@ async function getKPIData(startDate: Date, endDate: Date): Promise<KPIData> {
 
   // 3. Revenue (last 7 days)
   // New subscriptions created in period
-  const newSubscriptions = await prisma.subscription.findMany({
+  const revenueSubscriptions = await prisma.subscription.findMany({
     where: {
       startDate: { gte: startDate, lte: endDate },
       status: { in: ["ACTIVE", "TRIAL"] },
@@ -198,7 +198,7 @@ async function getKPIData(startDate: Date, endDate: Date): Promise<KPIData> {
     },
     distinct: ['userId'],
   });
-  const subscriptionRevenue = newSubscriptions.length * MEMBERSHIP_STANDARD_PRICE_CENTS;
+  const subscriptionRevenue = revenueSubscriptions.length * MEMBERSHIP_STANDARD_PRICE_CENTS;
 
   // Second cuts in period
   const secondCuts = await prisma.appointment.count({

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { sendAdminEmail } from "@/lib/email";
-import { computeKPIHealth } from "@/app/api/admin/kpi-health/route";
+import { computeKPIHealth } from "@/lib/kpiHealth";
 import dayjs from "dayjs";
 import timezone from "dayjs/plugin/timezone";
 import utc from "dayjs/plugin/utc";
