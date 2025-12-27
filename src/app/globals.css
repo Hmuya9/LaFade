@@ -33,6 +33,25 @@ iframe, embed, object {
   max-height: 600px;
 }
 
+/* Mobile safety override for dashboard grid - defense in depth */
+/* Forces single-column layout on small screens even if md: breakpoint fires incorrectly */
+@media (max-width: 767px) {
+  [data-debug="account-v2"] .grid[class*="md:grid-cols"] {
+    grid-template-columns: 1fr !important;
+  }
+  
+  [data-debug="account-v2"] .grid[class*="md:grid-cols"] > * {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+  }
+  
+  /* Ensure grid items don't create horizontal scroll */
+  [data-debug="account-v2"] .grid[class*="md:grid-cols"] [class*="col-span"] {
+    grid-column: span 1 !important;
+  }
+}
+
 /* High-fidelity luxury animations */
 @keyframes fadeInUp {
   from {

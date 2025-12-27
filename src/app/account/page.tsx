@@ -10,6 +10,7 @@ import { UpcomingAppointmentsClient } from "./_components/UpcomingAppointmentsCl
 import { NextAppointmentCard } from "./_components/NextAppointmentCard";
 import { LogoutButton } from "./_components/LogoutButton";
 import { AccountRefreshHandler } from "./_components/AccountRefreshHandler";
+import { ViewportDebugOverlay } from "./_components/ViewportDebugOverlay";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { AppointmentList } from "@/components/ui/appointment-list";
@@ -789,6 +790,7 @@ export default async function AccountPage({ searchParams }: AccountPageProps) {
   return (
     <main className="min-h-[100dvh] w-full" data-debug="account-v2">
       <AccountRefreshHandler />
+      <ViewportDebugOverlay />
       <div className="mx-auto max-w-6xl w-full px-4 md:px-6 py-12 md:py-16 space-y-8">
         {/* Bento Grid Layout */}
         <div className="grid grid-cols-1 md:grid-cols-12 gap-6 md:gap-8 min-w-0">
