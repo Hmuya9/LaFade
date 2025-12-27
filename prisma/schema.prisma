@@ -12,31 +12,32 @@ datasource db {
 }
 
 model User {
-  id            String    @id @default(cuid())
-  role          Role      @default(CLIENT)
-  email         String?   @unique
-  emailVerified DateTime?
-  phone         String?
-  name          String?
-  image         String?
-  clerkId       String?   @unique
-  passwordHash  String?
-  city          String?   // Barber's city / town (optional)
-  createdAt     DateTime  @default(now())
-  hasAnsweredFreeCutQuestion Boolean @default(false)
+  id                         String    @id @default(cuid())
+  role                       Role      @default(CLIENT)
+  email                      String?   @unique
+  emailVerified              DateTime?
+  phone                      String?
+  name                       String?
+  image                      String?
+  clerkId                    String?   @unique
+  passwordHash               String?
+  city                       String? // Barber's city / town (optional)
+  createdAt                  DateTime  @default(now())
+  hasAnsweredFreeCutQuestion Boolean   @default(false)
+  isTest                     Boolean   @default(false) // Exclude from analytics when true
 
-  accounts            Account[]
-  sessions            Session[]
-  subscriptions       Subscription[]
+  accounts                Account[]
+  sessions                Session[]
+  subscriptions           Subscription[]
   membershipSubscriptions MembershipSubscription[]
-  clientAppts         Appointment[]        @relation("ClientAppts")
-  barberAppts         Appointment[]        @relation("BarberAppts")
-  payouts             Payout[]
-  pointsLedger        PointsLedger[]
-  passwordResetTokens PasswordResetToken[]
-  photos              Photo[]
-  weeklyAvailability  BarberAvailability[] @relation("BarberAvailability")
-  cashAppPaymentIntents CashAppPaymentIntent[]
+  clientAppts             Appointment[]            @relation("ClientAppts")
+  barberAppts             Appointment[]            @relation("BarberAppts")
+  payouts                 Payout[]
+  pointsLedger            PointsLedger[]
+  passwordResetTokens     PasswordResetToken[]
+  photos                  Photo[]
+  weeklyAvailability      BarberAvailability[]     @relation("BarberAvailability")
+  cashAppPaymentIntents   CashAppPaymentIntent[]
 }
 
 enum Role {
@@ -84,7 +85,7 @@ model MembershipPlan {
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
-  subscriptions     MembershipSubscription[]
+  subscriptions MembershipSubscription[]
 
   // TODO: implement membership logic in a future iteration
 }
@@ -100,7 +101,7 @@ model MembershipSubscription {
   createdAt          DateTime         @default(now())
   updatedAt          DateTime         @updatedAt
 
-  user User @relation(fields: [userId], references: [id])
+  user User           @relation(fields: [userId], references: [id])
   plan MembershipPlan @relation(fields: [planId], references: [id])
 
   // TODO: implement membership logic in a future iteration
@@ -151,11 +152,11 @@ model Appointment {
   cancelReason   String?
 
   // Funnel + payment metadata (Phase 1)
-  kind       AppointmentKind?         @default(ONE_OFF)
-  priceCents Int?
-  paidVia    AppointmentPaymentMethod?
-  paymentStatus PaymentStatus?
-  cashAppIntentId String?            // Reference to CashAppPaymentIntent if paid via Cash App
+  kind            AppointmentKind?          @default(ONE_OFF)
+  priceCents      Int?
+  paidVia         AppointmentPaymentMethod?
+  paymentStatus   PaymentStatus?
+  cashAppIntentId String? // Reference to CashAppPaymentIntent if paid via Cash App
 
   // Optional client feedback for QR confirmation flow
   rating Int?
@@ -351,19 +352,30 @@ model Photo {
 }
 
 model CashAppPaymentIntent {
-  id         String   @id @default(cuid())
-  userId     String
+  id          String    @id @default(cuid())
+  userId      String
   amountCents Int
-  kind       String   // e.g. "DISCOUNT_SECOND" or "ONE_OFF"
-  noteCode   String   // short unique code user must include in Cash App note
-  status     String   @default("PENDING") // PENDING | CONFIRMED
+  kind        String // e.g. "DISCOUNT_SECOND" or "ONE_OFF"
+  noteCode    String // short unique code user must include in Cash App note
+  status      String    @default("PENDING") // PENDING | CONFIRMED
   confirmedAt DateTime?
-  createdAt  DateTime @default(now())
-  expiresAt  DateTime?
+  createdAt   DateTime  @default(now())
+  expiresAt   DateTime?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, status])
+}
+
+model AlertLog {
+  id          String   @id @default(cuid())
+  key         String // e.g. "kpi-health"
+  date        String // "YYYY-MM-DD" in LA timezone
+  sentAt      DateTime @default(now())
+  payloadJson Json // Store alert payload for audit
+
+  @@unique([key, date])
+  @@index([key, date])
 }
 
 // TODO: After adding Photo model, run:

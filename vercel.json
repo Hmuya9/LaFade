@@ -1,3 +1,9 @@
 {
-  "version": 2
+  "version": 2,
+  "crons": [
+    {
+      "path": "/api/cron/kpi-alert",
+      "schedule": "0 17 * * *"
+    }
+  ]
 }

@@ -132,8 +132,13 @@ export function getBaseUrl(): string {
 
 /**
  * Get the email sender address.
- * Falls back to EMAIL_FROM if NOTIFY_FROM is not set.
+ * Priority: EMAIL_FROM -> NOTIFY_FROM -> "onboarding@resend.dev"
+ * Never returns empty string - always has a safe fallback for local/dev.
  */
 export function getNotifyFromEmail(): string {
-  return env.NOTIFY_FROM ?? env.EMAIL_FROM ?? "";
+  return (
+    process.env.EMAIL_FROM?.trim() ||
+    process.env.NOTIFY_FROM?.trim() ||
+    "onboarding@resend.dev"
+  );
 }

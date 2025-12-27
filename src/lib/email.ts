@@ -56,7 +56,21 @@ export function getEmailEnvStatus(): EmailEnvStatus {
 // Initialize Resend client only if env is valid
 const emailEnv = getEmailEnvStatus();
 const resend = emailEnv.ok && emailEnv.resendApiKey ? new Resend(emailEnv.resendApiKey) : null;
-const fromAddress = emailEnv.notifyFrom || emailEnv.fromEmail;
+
+/**
+ * Get sender email address with safe fallback.
+ * Priority: EMAIL_FROM -> NOTIFY_FROM -> "onboarding@resend.dev"
+ * Never returns empty - always has a safe fallback for local/dev.
+ */
+function getFromAddress(): string {
+  return (
+    process.env.EMAIL_FROM?.trim() ||
+    process.env.NOTIFY_FROM?.trim() ||
+    "onboarding@resend.dev"
+  );
+}
+
+const fromAddress = getFromAddress();
 const ownerEmail = emailEnv.notifyTo || '';
 
 /**
@@ -415,6 +429,80 @@ export async function sendAdminBookingAlert(
     // IMPORTANT: swallow error - do not throw
     const errorMessage = err instanceof Error ? err.message : String(err);
     console.error('[email] Admin alert error', { error: errorMessage });
+    return { emailed: false, reason: `Exception: ${errorMessage}` };
+  }
+}
+
+/**
+ * Send admin alert email (for KPI alerts and other admin notifications).
+ * Safe wrapper - never throws, always logs errors.
+ * Uses ADMIN_ALERT_EMAIL env var (falls back to ADMIN_EMAIL if not set).
+ * 
+ * @param subject - Email subject line
+ * @param text - Plain text email body
+ * @returns EmailResult indicating success/failure
+ */
+export async function sendAdminEmail({ subject, text }: { subject: string; text: string }): Promise<EmailResult> {
+  try {
+    // Check env status first
+    const envStatus = getEmailEnvStatus();
+    if (!envStatus.ok) {
+      console.warn('[email] Admin email skipped: Email env check failed:', envStatus.reason);
+      return { emailed: false, reason: envStatus.reason };
+    }
+
+    if (!resend) {
+      console.warn('[email] Admin email skipped: Resend client not initialized');
+      return { emailed: false, reason: 'Resend client not initialized' };
+    }
+
+    // Get sender address with safe fallback (never empty)
+    const senderAddress = getFromAddress();
+    
+    // Get admin alert email from env (prefer ADMIN_ALERT_EMAIL, fallback to ADMIN_EMAIL)
+    const adminEmail = process.env.ADMIN_ALERT_EMAIL || process.env.ADMIN_EMAIL;
+    if (!adminEmail) {
+      console.warn('[email] Admin email skipped: ADMIN_ALERT_EMAIL and ADMIN_EMAIL not set');
+      return { emailed: false, reason: 'ADMIN_ALERT_EMAIL and ADMIN_EMAIL not set' };
+    }
+
+    // Dev-only debug logging (never logs API keys)
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[email] sendAdminEmail debug', {
+        from: senderAddress,
+        to: adminEmail,
+        subject,
+        hasResendKey: !!process.env.RESEND_API_KEY,
+      });
+    }
+
+    // Convert plain text to HTML (simple line breaks)
+    const html = text.split('\n').map(line => `<p>${line || '&nbsp;'}</p>`).join('\n');
+    const htmlBody = `
+      <div style="font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; line-height: 1.5;">
+        ${html}
+      </div>
+    `;
+
+    const result = await resend.emails.send({
+      from: senderAddress,
+      to: adminEmail,
+      subject,
+      html: htmlBody,
+    });
+
+    if ((result as any)?.error) {
+      const errorMessage = (result as any).error.message || String((result as any).error);
+      console.error('[email] Admin email failed', { error: errorMessage });
+      return { emailed: false, reason: `Resend API error: ${errorMessage}` };
+    }
+
+    console.log('[email] Admin email sent successfully', { adminEmail, subject });
+    return { emailed: true };
+  } catch (err) {
+    // IMPORTANT: swallow error - do not throw (cron should not fail)
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    console.error('[email] Admin email error', { error: errorMessage });
     return { emailed: false, reason: `Exception: ${errorMessage}` };
   }
 }

@@ -7,7 +7,11 @@ export async function GET() {
       return NextResponse.json({ ok: false, error: "Missing RESEND_API_KEY" }, { status: 500 });
     }
     const resend = new Resend(process.env.RESEND_API_KEY);
-    const from = process.env.EMAIL_FROM ?? "onboarding@resend.dev";
+    const from = (
+      process.env.EMAIL_FROM?.trim() ||
+      process.env.NOTIFY_FROM?.trim() ||
+      "onboarding@resend.dev"
+    );
     const to = process.env.BARBER_EMAIL ?? "hmuya@uw.edu";
 
     const r = await resend.emails.send({

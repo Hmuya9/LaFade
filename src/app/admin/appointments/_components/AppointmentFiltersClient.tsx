@@ -112,3 +112,4 @@ export function AppointmentFiltersClient({ barbers, searchParams }: AppointmentF
   );
 }
 
+

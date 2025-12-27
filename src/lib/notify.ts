@@ -40,13 +40,13 @@ export async function sendBookingEmail(appointment: AppointmentWithIncludes, typ
   }
 
   const appUrl = env.appUrl || "http://localhost:9999"
-  const notifyTo = envStatus.notifyTo || "bookings@lefade.com"
-  const notifyFrom = envStatus.notifyFrom || getNotifyFromEmail()
-  
-  if (!notifyFrom) {
-    console.warn('[notify] From address missing');
-    return { emailed: false, reason: 'From address missing' };
-  }
+  const notifyTo = envStatus.notifyTo || process.env.NOTIFY_TO || ""
+  // Get sender with safe fallback (never empty)
+  const notifyFrom = (
+    process.env.EMAIL_FROM?.trim() ||
+    process.env.NOTIFY_FROM?.trim() ||
+    "onboarding@resend.dev"
+  )
   
   // Note: appointment.startAt is already a Date object (UTC)
   // Formatting for display should be done in UI, but for email we format here
@@ -249,12 +249,12 @@ export async function sendPasswordResetEmail(to: string, token: string): Promise
 
   const baseUrl = getBaseUrl()
   const resetUrl = `${baseUrl}/reset-password?token=${encodeURIComponent(token)}`
-  const notifyFrom = envStatus.notifyFrom || getNotifyFromEmail()
-
-  if (!notifyFrom) {
-    console.warn('[notify] From address missing for password reset');
-    return { emailed: false, reason: 'From address missing' };
-  }
+  // Get sender with safe fallback (never empty)
+  const notifyFrom = (
+    process.env.EMAIL_FROM?.trim() ||
+    process.env.NOTIFY_FROM?.trim() ||
+    "onboarding@resend.dev"
+  )
 
   try {
     await resend.emails.send({

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { REAL_APPOINTMENT_WHERE, withRealUsers } from "@/lib/analyticsFilters";
 import dayjs from "dayjs";
 
 export const runtime = "nodejs";
@@ -44,21 +45,23 @@ export async function GET() {
     const startWeek = now.startOf("week").toDate();
     const endWeek = now.endOf("week").toDate();
 
-    // Free Cuts Given: appointments with kind="TRIAL_FREE" and status != "CANCELED"
+    // Free Cuts Given: appointments with kind="TRIAL_FREE" and status != "CANCELED" (exclude test users)
     const freeCutsGiven = await prisma.appointment.count({
       where: {
         barberId: barberId,
         kind: "TRIAL_FREE",
-        status: { not: "CANCELED" }
+        status: { not: "CANCELED" },
+        ...REAL_APPOINTMENT_WHERE,
       }
     });
 
-    // Free Cut Clients: distinct clientIds from same filter
+    // Free Cut Clients: distinct clientIds from same filter (exclude test users)
     const freeCutAppointments = await prisma.appointment.findMany({
       where: {
         barberId: barberId,
         kind: "TRIAL_FREE",
-        status: { not: "CANCELED" }
+        status: { not: "CANCELED" },
+        ...REAL_APPOINTMENT_WHERE,
       },
       select: { clientId: true }
     });
@@ -66,13 +69,18 @@ export async function GET() {
     const uniqueClientIds = new Set(freeCutAppointments.map(apt => apt.clientId));
     const freeCutClients = uniqueClientIds.size;
 
-    // Active Members: subscriptions where user has at least one appointment with this barber
+    // Active Members: subscriptions where user has at least one appointment with this barber (exclude test users)
     const activeSubscriptions = await prisma.subscription.findMany({
       where: {
         status: { in: ["TRIAL", "ACTIVE"] },
         user: {
+          isTest: false, // Exclude test users
           clientAppts: {
-            some: { barberId: barberId }
+            some: { 
+              barberId: barberId,
+              client: { isTest: false },
+              barber: { isTest: false },
+            }
           }
         }
       },
@@ -90,7 +98,7 @@ export async function GET() {
       }, 0) * 0.65
     );
 
-    // Utilization This Week: appointments in current week with status IN ("BOOKED", "CONFIRMED", "COMPLETED")
+    // Utilization This Week: appointments in current week with status IN ("BOOKED", "CONFIRMED", "COMPLETED") (exclude test users)
     const utilizationThisWeek = await prisma.appointment.count({
       where: {
         barberId: barberId,
@@ -98,7 +106,8 @@ export async function GET() {
         startAt: {
           gte: startWeek,
           lte: endWeek
-        }
+        },
+        ...REAL_APPOINTMENT_WHERE,
       }
     });
 
@@ -126,6 +135,7 @@ export async function GET() {
     });
   }
 }
+
 
 
 
