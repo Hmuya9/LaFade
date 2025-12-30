@@ -42,6 +42,8 @@ export function parse12HourTime(time12: string): number {
  * Convert a date+time string (in America/Los_Angeles) to a UTC Date object.
  * Used when creating appointments from user input.
  * 
+ * Uses date-fns-tz's fromZonedTime for correct DST handling.
+ * 
  * @param dateStr - "2025-01-15" (YYYY-MM-DD)
  * @param timeStr - "9:00 AM" (12-hour format)
  * @returns UTC Date object
@@ -54,48 +56,16 @@ export function parseLocalDateTimeToUTC(dateStr: string, timeStr: string): Date 
   if (period === "PM" && hour24 !== 12) hour24 += 12;
   if (period === "AM" && hour24 === 12) hour24 = 0;
   
-  // SIMPLE CORRECT IMPLEMENTATION:
-  // Use Intl API to get timezone offset for LA at this specific date/time
-  // Then manually calculate UTC = LA time - offset
+  // Create a Date object with the local time components
+  // Note: new Date(year, month-1, day, hour, minute) creates a date in system timezone,
+  // but fromZonedTime will reinterpret the components as if they're in BUSINESS_TIMEZONE
+  const localDate = new Date(year, month - 1, day, hour24, parseInt(mm ?? "0", 10), 0, 0);
   
-  // Create a reference date in LA timezone for this date
-  // We'll use a known UTC time and see what it represents in LA
-  const referenceUTC = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
-  
-  // Get what time this represents in LA
-  const formatter = new Intl.DateTimeFormat('en-US', {
-    timeZone: BUSINESS_TIMEZONE,
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false
-  });
-  
-  const laTimeAtNoonUTC = formatter.format(referenceUTC);
-  const [laHour, laMinute] = laTimeAtNoonUTC.split(':').map(Number);
-  
-  // Calculate offset: 12:00 UTC = laHour:laMinute in LA
-  // If 12:00 UTC = 4:00 AM LA (PST), then LA is 8 hours behind UTC
-  // Offset = laHour - 12 (negative means LA is behind UTC)
-  // For PST: 4 - 12 = -8 (LA is 8 hours behind)
-  const offsetHours = laHour - 12;
-  
-  // For our desired LA time (hour24:minute), calculate UTC
-  // UTC = LA time - offset
-  // Example: 14:30 LA - (-8) = 14:30 + 8 = 22:30 UTC ✓
-  const utcHour = hour24 - offsetHours;
-  let finalDay = day;
-  let finalHour = utcHour;
-  
-  // Handle day rollover
-  if (finalHour < 0) {
-    finalHour += 24;
-    finalDay -= 1;
-  } else if (finalHour >= 24) {
-    finalHour -= 24;
-    finalDay += 1;
-  }
-  
-  return new Date(Date.UTC(year, month - 1, finalDay, finalHour, parseInt(mm ?? "0", 10), 0));
+  // Convert from LA timezone to UTC using date-fns-tz
+  // fromZonedTime takes a Date object and treats its date/time components
+  // as if they represent a time in the given timezone, then returns the UTC equivalent
+  // This correctly handles DST transitions (PST vs PDT)
+  return fromZonedTime(localDate, BUSINESS_TIMEZONE);
 }
 
 /**

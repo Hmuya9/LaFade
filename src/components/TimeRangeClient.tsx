@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo } from "react";
-import { format } from "date-fns";
+import { formatInTimeZone } from "date-fns-tz";
+import { BUSINESS_TIMEZONE } from "@/lib/time-utils";
 
 interface TimeRangeClientProps {
   startAt: string | Date;
@@ -14,10 +15,9 @@ interface TimeRangeClientProps {
 
 /**
  * Client-side component for formatting appointment time ranges.
- * Converts UTC timestamps from the database to the user's local timezone.
+ * Converts UTC timestamps from the database to business timezone (America/Los_Angeles).
  * 
- * This component should be used instead of server-side date formatting
- * to ensure times are displayed correctly in the user's local timezone.
+ * IMPORTANT: All appointments are in America/Los_Angeles timezone, not user's local timezone.
  */
 export function TimeRangeClient({
   startAt,
@@ -29,7 +29,7 @@ export function TimeRangeClient({
 }: TimeRangeClientProps) {
   const { dateText, timeText } = useMemo(() => {
     // Parse startAt as UTC timestamp (from database)
-    // ISO strings like "2024-01-15T15:00:00.000Z" are automatically parsed as UTC
+    // ISO strings like "2024-01-15T17:00:00.000Z" are automatically parsed as UTC
     const start = typeof startAt === "string" ? new Date(startAt) : startAt;
     
     // Calculate endAt if not provided
@@ -41,21 +41,18 @@ export function TimeRangeClient({
     if (typeof window !== 'undefined' && process.env.NODE_ENV === "development") {
       console.log("[TimeRangeClient]", {
         inputStartAt: startAt,
-        parsedStart: start.toISOString(),
-        localStart: start.toString(),
-        localTime: start.toLocaleString(),
-        timezoneOffset: start.getTimezoneOffset(),
-        formattedTime: timeFormat && timeFormat !== "" ? format(start, timeFormat) : "N/A (date only)",
+        parsedStartUTC: start.toISOString(),
+        formattedInBusinessTZ: formatInTimeZone(start, BUSINESS_TIMEZONE, timeFormat || "h:mm a"),
       });
     }
     
-    // Format dates in user's local timezone (browser automatically handles conversion)
-    // date-fns format() automatically uses the browser's local timezone
-    const dateText = showDate ? format(start, dateFormat) : null;
+    // Format dates in business timezone (America/Los_Angeles)
+    // All appointments are displayed in LA time, not user's local timezone
+    const dateText = showDate ? formatInTimeZone(start, BUSINESS_TIMEZONE, dateFormat) : null;
     
     // Only calculate timeText if timeFormat is provided and not empty
     const timeText = (timeFormat && timeFormat !== "") 
-      ? `${format(start, timeFormat)} – ${format(end, timeFormat)}`
+      ? `${formatInTimeZone(start, BUSINESS_TIMEZONE, timeFormat)} – ${formatInTimeZone(end, BUSINESS_TIMEZONE, timeFormat)}`
       : null;
     
     return { dateText, timeText };
