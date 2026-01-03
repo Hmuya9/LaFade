@@ -52,7 +52,55 @@ const publicRoutes = [
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
-  // Ignore static & API
+  // PAUSE SITE LOGIC - Check first, before any other logic
+  const PAUSE_SITE = process.env.PAUSE_SITE === "true";
+  const PAUSE_BYPASS_TOKEN = process.env.PAUSE_BYPASS_TOKEN;
+
+  if (PAUSE_SITE) {
+    // Check for bypass: query param or cookie
+    const bypassQuery = req.nextUrl.searchParams.get("bypass");
+    const bypassCookie = req.cookies.get("pause_bypass")?.value === "1";
+    const hasBypass = 
+      (PAUSE_BYPASS_TOKEN && bypassQuery === PAUSE_BYPASS_TOKEN) || 
+      bypassCookie;
+
+    // Always allow these paths (even when paused)
+    const allowedPaths = [
+      "/pause",
+      "/api",
+      "/_next",
+      "/favicon.ico",
+      "/robots.txt",
+      "/sitemap.xml",
+    ];
+
+    const isAllowedPath = allowedPaths.some((path) => 
+      pathname === path || pathname.startsWith(path)
+    );
+
+    // If bypass is active OR path is allowed, let through
+    if (hasBypass || isAllowedPath) {
+      // If bypass token is in query, set cookie for future requests
+      if (PAUSE_BYPASS_TOKEN && bypassQuery === PAUSE_BYPASS_TOKEN) {
+        const response = NextResponse.next();
+        response.cookies.set("pause_bypass", "1", {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === "production",
+          sameSite: "lax",
+          maxAge: 60 * 60 * 24 * 30, // 30 days
+        });
+        return response;
+      }
+      return NextResponse.next();
+    }
+
+    // Everything else: redirect to /pause (307 = temporary redirect, preserves method)
+    const url = req.nextUrl.clone();
+    url.pathname = "/pause";
+    return NextResponse.redirect(url, 307);
+  }
+
+  // Ignore static & API (original logic continues when not paused)
   if (
     pathname.startsWith("/_next") ||
     pathname.startsWith("/api") ||
